@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>PDF Processing</title>
+</head>
+<body>
+    <h1>PDF Summarization and Insights</h1>
+
+    <input type="file" id="pdfInput" accept=".pdf">
+    <button onclick="uploadPDF()">Upload PDF</button>
+
+    <div id="results" style="display: none;">  </div>
+
+    <script>
+        async function uploadPDF() {
+            const fileInput = document.getElementById('pdfInput');
+            const file = fileInput.files[0];
+
+            if (!file) {
+                alert('Please select a PDF file.');
+                return;
+            }
+
+            const formData = new FormData();
+            formData.append('pdf', file);  // 'pdf' is the key your backend expects
+
+            try {
+                const response = await fetch('/api/process', {  // Your serverless function endpoint
+                    method: 'POST',
+                    body: formData
+                });
+
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.error || 'An error occurred.');
+                }
+
+                const data = await response.json();
+
+                // Display results (after successful upload)
+                document.getElementById('results').style.display = 'block';
+                document.getElementById('results').innerHTML = `
+                    <h2>Summary:</h2>
+                    <p>${data.summary}</p>
+                    <h2>Insights:</h2>
+                    <p>${data.insights}</p>
+                `; // Improved display
+
+            } catch (error) {
+                alert(error.message);
+            }
+        }
+    </script>
+</body>
+</html>
