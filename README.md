@@ -22,6 +22,7 @@ Requirements: Docker, [`uv`](https://docs.astral.sh/uv/).
 cp .env.example .env
 uv sync                          # project-local Python 3.12 + deps in ./.venv
 make infra                       # Postgres :5433 (a non-default port: no collisions)
+make migrate
 ```
 
 ## Develop
@@ -31,5 +32,5 @@ make test                 # unit tests
 make lint                 # ruff
 ```
 
-Configuration will be entirely via `SYNAPTIX_*` environment variables. The original prototype
-lives in `legacy/` for reference only.
+Configuration is entirely via `SYNAPTIX_*` environment variables (see
+`app/core/settings.py`). The original prototype lives in `legacy/` for reference only.

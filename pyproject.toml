@@ -3,7 +3,14 @@ name = "synaptix"
 version = "0.1.0"
 description = "Production RAG over PDFs: structured ingestion, hybrid retrieval with reranking, cited answers, and competitor-analysis agents."
 requires-python = ">=3.12,<3.13"
-dependencies = []
+dependencies = [
+    "pydantic-settings>=2.4",
+    "sqlalchemy[asyncio]>=2.0.30",
+    "asyncpg>=0.29",
+    "alembic>=1.13",
+    "pgvector>=0.3",
+    "structlog>=24.1",
+]
 
 [dependency-groups]
 dev = ["pytest>=8", "pytest-asyncio>=0.23", "ruff>=0.5"]
@@ -25,4 +32,7 @@ select = ["E", "F", "I", "B", "UP", "ASYNC", "SIM"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+# one loop for the whole run: the async engine's pool is bound to the loop it was created on
+asyncio_default_fixture_loop_scope = "session"
+asyncio_default_test_loop_scope = "session"
 testpaths = ["tests"]
