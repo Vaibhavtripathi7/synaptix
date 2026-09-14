@@ -13,23 +13,31 @@ PDF ──► parse ──► typed blocks ──► chunk ──► embed ─�
 | Layer | Choice | Why |
 |---|---|---|
 | Store | Postgres 17 + pgvector (HNSW) + tsvector (GIN) | vectors, FTS, metadata and transactions in one place |
+| LLM | Gemini via `google-genai` (Vertex or API key) | vision for figures/OCR, structured JSON output |
+| Embed | `gemini-embedding-001` @1024-d, or local `bge-m3` | Matryoshka truncation lets both share one column |
 
 ## Run
 
 Requirements: Docker, [`uv`](https://docs.astral.sh/uv/).
 
 ```sh
-cp .env.example .env
+cp .env.example .env            # add SYNAPTIX_GOOGLE_API_KEY (or Vertex project)
 uv sync                          # project-local Python 3.12 + deps in ./.venv
 make infra                       # Postgres :5433 (a non-default port: no collisions)
 make migrate
 ```
+
+### Resilience
+
+`app/llm/client.py` retries transport errors in place and fails over to the next model in
+`SYNAPTIX_LLM_FALLBACK_MODELS` on quota 429s or 503 overloads.
 
 ## Develop
 
 ```sh
 make test                 # unit tests
 make lint                 # ruff
+uv sync --extra local     # adds sentence-transformers for local embeddings
 ```
 
 Configuration is entirely via `SYNAPTIX_*` environment variables (see
