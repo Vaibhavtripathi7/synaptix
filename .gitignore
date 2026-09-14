@@ -1,2 +1,12 @@
+__pycache__/
+*.py[cod]
+.venv/
+.ruff_cache/
+.pytest_cache/
+.env
+!.env.example
+data/
+models/
 legacy/*.pickle
 legacy/Enhancing_Real-time_Object_Detection_with_YOLO_Alg-2/
+.idea/
