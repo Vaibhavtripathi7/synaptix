@@ -1,13 +1,16 @@
 # Synaptix
 
 Production RAG over PDFs. Documents are parsed into typed, bbox-anchored blocks — text, tables,
-figures, and scanned pages — chunked along their heading structure, and indexed for hybrid
-search, with every chunk traceable to the exact blocks and bounding boxes it came from.
+figures, and **scanned or handwritten pages**, which a vision model transcribes to Markdown and
+LaTeX — chunked along their heading structure, and indexed for hybrid search, with every chunk
+traceable to the exact blocks and bounding boxes it came from.
 
 ## Architecture
 
 ```
-PDF ──► parse (layout model) ──► chunk ──► embed ──► Postgres 17 + pgvector
+PDF ──► parse (layout model) ──► enrich (vision: figures, tables, scans) ──► chunk ──► embed
+                                                                                     │
+                                                         Postgres 17 + pgvector ◄────┘
 ```
 
 | Layer | Choice | Why |
@@ -31,7 +34,8 @@ make migrate
 ### Resilience
 
 `app/llm/client.py` retries transport errors in place and fails over to the next model in
-`SYNAPTIX_LLM_FALLBACK_MODELS` on quota 429s or 503 overloads.
+`SYNAPTIX_LLM_FALLBACK_MODELS` on quota 429s or 503 overloads. Enrichment degrades per element
+(a figure that could not be captioned keeps its caption text) instead of failing the document.
 
 ## Develop
 
