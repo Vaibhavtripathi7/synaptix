@@ -7,12 +7,13 @@ search, with every chunk traceable to the exact blocks and bounding boxes it cam
 ## Architecture
 
 ```
-PDF ──► parse ──► typed blocks ──► chunk ──► embed ──► Postgres 17 + pgvector
+PDF ──► parse (layout model) ──► typed blocks ──► embed ──► Postgres 17 + pgvector
 ```
 
 | Layer | Choice | Why |
 |---|---|---|
 | Store | Postgres 17 + pgvector (HNSW) + tsvector (GIN) | vectors, FTS, metadata and transactions in one place |
+| Parse | PyMuPDF + `pymupdf-layout` | block classes (heading/text/table/figure) with bboxes, tables as Markdown |
 | LLM | Gemini via `google-genai` (Vertex or API key) | vision for figures/OCR, structured JSON output |
 | Embed | `gemini-embedding-001` @1024-d, or local `bge-m3` | Matryoshka truncation lets both share one column |
 
