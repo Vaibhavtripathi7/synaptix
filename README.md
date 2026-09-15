@@ -7,7 +7,7 @@ search, with every chunk traceable to the exact blocks and bounding boxes it cam
 ## Architecture
 
 ```
-PDF ──► parse (layout model) ──► typed blocks ──► embed ──► Postgres 17 + pgvector
+PDF ──► parse (layout model) ──► chunk ──► embed ──► Postgres 17 + pgvector
 ```
 
 | Layer | Choice | Why |

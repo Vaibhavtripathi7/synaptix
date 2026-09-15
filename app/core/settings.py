@@ -33,6 +33,10 @@ class Settings(BaseSettings):
     local_embedding_model: str = "BAAI/bge-m3"
     embedding_dim: int = 1024  # bge-m3 native; gemini-embedding-001 truncated (Matryoshka)
 
+    # Chunking
+    chunk_tokens: int = 400
+    chunk_overlap_tokens: int = 60
+
 
 @lru_cache
 def get_settings() -> Settings:
