@@ -1,4 +1,5 @@
 from functools import lru_cache
+from pathlib import Path
 from typing import Literal
 
 from pydantic import SecretStr
@@ -15,6 +16,7 @@ class Settings(BaseSettings):
 
     # Infra (host ports are non-default on purpose so local services never collide)
     database_url: str = "postgresql+asyncpg://synaptix:synaptix@localhost:5433/synaptix"
+    storage_dir: Path = Path("data/storage")  # source PDFs and extracted figures
 
     # Gemini: "vertex" uses ADC + project, "api_key" uses an AI Studio key
     gemini_backend: Literal["vertex", "api_key"] = "api_key"
