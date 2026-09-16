@@ -8,13 +8,15 @@ traceable to the exact blocks and bounding boxes it came from.
 ## Architecture
 
 ```
-PDF ──► parse (layout model) ──► enrich (vision: figures, tables, scans) ──► chunk ──► embed
-                                                                                     │
-                                                         Postgres 17 + pgvector ◄────┘
+client  ──►  FastAPI (app/api)  ──►  Postgres 17 + pgvector  ◄──  arq worker (app/workers)
+              │ documents                         ▲                   └─ ingest: parse → OCR/enrich → chunk → embed
+              └── /healthz /readyz
 ```
 
 | Layer | Choice | Why |
 |---|---|---|
+| API | FastAPI, async SQLAlchemy 2.0 | typed schemas, one DB session per request |
+| Jobs | arq on Redis | async-native, tiny footprint, timeouts built in |
 | Store | Postgres 17 + pgvector (HNSW) + tsvector (GIN) | vectors, FTS, metadata and transactions in one place |
 | Parse | PyMuPDF + `pymupdf-layout` | block classes (heading/text/table/figure) with bboxes, tables as Markdown |
 | LLM | Gemini via `google-genai` (Vertex or API key) | vision for figures/OCR, structured JSON output |
@@ -27,9 +29,21 @@ Requirements: Docker, [`uv`](https://docs.astral.sh/uv/).
 ```sh
 cp .env.example .env            # add SYNAPTIX_GOOGLE_API_KEY (or Vertex project)
 uv sync                          # project-local Python 3.12 + deps in ./.venv
-make infra                       # Postgres :5433 (a non-default port: no collisions)
+make infra                       # Postgres :5433 and Redis :6380 (non-default ports, no collisions)
 make migrate
+make api                         # http://localhost:8000/docs (API)
+make worker                      # second terminal
 ```
+
+### API
+
+```sh
+curl -F file=@paper.pdf localhost:8000/api/v1/documents   # 202 → queued … ready
+curl localhost:8000/api/v1/documents/<id>                    # status, page count, title
+```
+
+`GET /documents/{id}/chunks/{chunk_id}` returns the page elements (with bboxes) a chunk was built
+from, so a client can highlight the exact blocks on the page.
 
 ### Resilience
 

@@ -16,7 +16,9 @@ class Settings(BaseSettings):
 
     # Infra (host ports are non-default on purpose so local services never collide)
     database_url: str = "postgresql+asyncpg://synaptix:synaptix@localhost:5433/synaptix"
+    redis_url: str = "redis://localhost:6380/0"  # job queue: must never evict
     storage_dir: Path = Path("data/storage")  # source PDFs and extracted figures
+    max_upload_mb: int = 100
 
     # Gemini: "vertex" uses ADC + project, "api_key" uses an AI Studio key
     gemini_backend: Literal["vertex", "api_key"] = "api_key"
