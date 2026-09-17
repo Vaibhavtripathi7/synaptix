@@ -5,10 +5,11 @@ from arq.connections import RedisSettings
 from fastapi import FastAPI
 from sqlalchemy import text
 
-from app.api import documents
+from app.api import documents, query
 from app.core.logging import configure_logging
 from app.core.settings import get_settings
 from app.db.session import engine
+from app.rag.answer import build_answerer
 from app.storage import LocalStorage
 
 
@@ -17,6 +18,7 @@ async def lifespan(app: FastAPI):
     configure_logging()
     settings = get_settings()
     app.state.storage = LocalStorage(settings.storage_dir)
+    app.state.answerer = build_answerer(settings)
     app.state.queue = await create_pool(RedisSettings.from_dsn(settings.redis_url))
     yield
     await app.state.queue.aclose()
@@ -25,6 +27,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Synaptix", version="0.1.0", lifespan=lifespan)
 app.include_router(documents.router, prefix="/api/v1")
+app.include_router(query.router, prefix="/api/v1")
 
 
 @app.get("/healthz", include_in_schema=False)

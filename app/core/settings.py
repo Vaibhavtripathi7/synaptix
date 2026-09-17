@@ -44,6 +44,7 @@ class Settings(BaseSettings):
     chunk_overlap_tokens: int = 60
 
     # Retrieval
+    query_expansion: bool = True  # one extra LLM call: paraphrased queries improve recall
     retrieval_k: int = 40  # fused candidates per question
     rerank_top_n: int = 8  # passages that survive reranking
     context_tokens: int = 6000  # budget for the answer prompt

@@ -9,8 +9,7 @@ from arq.connections import RedisSettings
 from app.core.logging import configure_logging
 from app.core.settings import get_settings
 from app.ingest.pipeline import ingest_document
-from app.llm.client import Gemini
-from app.llm.embeddings import build_embedder
+from app.rag.answer import build_answerer
 from app.storage import LocalStorage
 
 log = structlog.get_logger()
@@ -21,12 +20,10 @@ JOB_TIMEOUT = 1800
 async def startup(ctx: dict) -> None:
     configure_logging()
     settings = get_settings()
-    llm = Gemini(settings)
     ctx.update(
         settings=settings,
         storage=LocalStorage(settings.storage_dir),
-        llm=llm,
-        embedder=build_embedder(settings, llm),
+        answerer=build_answerer(settings),
     )
 
 
@@ -38,13 +35,14 @@ async def _run_job(name: str, work: Callable[[], Awaitable[None]]) -> None:
 
 
 async def ingest(ctx: dict, document_id: str) -> None:
+    answerer = ctx["answerer"]
     await _run_job(
         "ingest",
         lambda: ingest_document(
             uuid.UUID(document_id),
             storage=ctx["storage"],
-            llm=ctx["llm"],
-            embedder=ctx["embedder"],
+            llm=answerer.llm,
+            embedder=answerer.embedder,
             settings=ctx["settings"],
         ),
     )

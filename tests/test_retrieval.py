@@ -24,3 +24,25 @@ async def test_hybrid_fuses_dense_and_sparse_and_expands_to_section(seeded):
         assert passages[0].text.startswith("Short section body")
         assert len(passages[0].chunk_ids) == 3
         assert passages[0].heading_path == ["Test Doc", "Methods"]
+
+
+async def test_answerer_retrieve_with_stub_models(seeded):
+    """Covers the retrieve() → search() → context path without any model calls."""
+    from app.core.settings import get_settings
+    from app.rag.answer import Answerer
+    from app.retrieval.rerank import NoReranker
+
+    class StubEmbedder:
+        async def embed_documents(self, texts):
+            return [_vec(2) for _ in texts]
+
+        async def embed_query(self, text):
+            return _vec(2)
+
+    settings = get_settings().model_copy(update={"query_expansion": False})
+    answerer = Answerer(llm=None, embedder=StubEmbedder(), reranker=NoReranker(), settings=settings)
+    async with SessionLocal() as s:
+        r = await answerer.retrieve(s, "isochrone drawbacks", [seeded])
+    assert r.queries == ["isochrone drawbacks"]
+    assert r.candidates == 3 and len(r.passages) == 1
+    assert r.passages[0].n == 1
