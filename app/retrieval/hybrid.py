@@ -20,6 +20,7 @@ class Hit:
     score: float = 0.0
     dense_rank: int | None = None
     sparse_rank: int | None = None
+    rerank_score: float | None = None
     queries: set[int] = field(default_factory=set)  # which query variants retrieved it
 
 

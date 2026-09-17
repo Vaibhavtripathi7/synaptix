@@ -21,6 +21,7 @@ client  ──►  FastAPI (app/api)  ──►  Postgres 17 + pgvector  ◄─�
 | Parse | PyMuPDF + `pymupdf-layout` | block classes (heading/text/table/figure) with bboxes, tables as Markdown |
 | LLM | Gemini via `google-genai` (Vertex or API key) | vision for figures/OCR, structured JSON output |
 | Embed | `gemini-embedding-001` @1024-d, or local `bge-m3` | Matryoshka truncation lets both share one column |
+| Rerank | listwise Gemini, or local `bge-reranker-v2-m3` | precision on top of RRF without a hosted reranking service |
 
 ## Run
 
@@ -56,7 +57,7 @@ from, so a client can highlight the exact blocks on the page.
 ```sh
 make test                 # unit tests + DB-backed retrieval tests (skipped if Postgres is down)
 make lint                 # ruff
-uv sync --extra local     # adds sentence-transformers for local embeddings
+uv sync --extra local     # adds sentence-transformers for local embeddings / reranking
 ```
 
 Configuration is entirely via `SYNAPTIX_*` environment variables (see

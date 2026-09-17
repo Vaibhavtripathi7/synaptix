@@ -31,11 +31,13 @@ class Settings(BaseSettings):
     llm_fallback_models: list[str] = ["gemini-3-flash-preview", "gemini-3.5-flash-lite"]
     llm_concurrency: int = 4
 
-    # Embeddings. `local` needs the optional `sentence-transformers` extra.
+    # Retrieval stack. `local` variants need the optional `sentence-transformers` extra.
     embedding_provider: Literal["gemini", "local"] = "gemini"
     embedding_model: str = "gemini-embedding-001"
     local_embedding_model: str = "BAAI/bge-m3"
     embedding_dim: int = 1024  # bge-m3 native; gemini-embedding-001 truncated (Matryoshka)
+    reranker: Literal["llm", "local", "none"] = "llm"
+    local_reranker_model: str = "BAAI/bge-reranker-v2-m3"
 
     # Chunking
     chunk_tokens: int = 400
@@ -43,6 +45,8 @@ class Settings(BaseSettings):
 
     # Retrieval
     retrieval_k: int = 40  # fused candidates per question
+    rerank_top_n: int = 8  # passages that survive reranking
+    context_tokens: int = 6000  # budget for the answer prompt
 
 
 @lru_cache
