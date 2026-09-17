@@ -1,5 +1,80 @@
+import random
+import uuid
+
 import pymupdf
 import pytest
+from sqlalchemy import delete, text
+
+from app.core.settings import get_settings
+from app.db.models import Chunk, DocStatus, Document, ElementKind, Section
+from app.db.session import SessionLocal
+
+DIM = get_settings().embedding_dim
+
+
+def vec(seed: int) -> list[float]:
+    rng = random.Random(seed)
+    return [rng.uniform(-1, 1) for _ in range(DIM)]
+
+
+@pytest.fixture
+async def db():
+    """Skips the test when Postgres is not reachable, so unit tests still run anywhere."""
+    try:
+        async with SessionLocal() as s:
+            await s.execute(text("select 1"))
+    except Exception:
+        pytest.skip("database not reachable")
+
+
+@pytest.fixture
+async def seeded(db):
+    """One ready document: a short section holding three chunks with known text and vectors."""
+    doc = Document(
+        filename="t.pdf",
+        content_hash=uuid.uuid4().hex,
+        storage_key="x",
+        title="Test Doc",
+        status=DocStatus.ready,
+        page_count=2,
+    )
+    sec = Section(
+        order_idx=0,
+        heading_path=["Test Doc", "Methods"],
+        page_start=1,
+        page_end=2,
+        content="Short section body about isochrones.",
+    )
+    texts = [
+        "The isochrone method has drawbacks: limited variables and constraints.",
+        "Genetic algorithms approximate the Pareto front for multi-objective routing.",
+        "Dijkstra computes shortest paths on a grid graph.",
+    ]
+    async with SessionLocal() as s:
+        s.add(doc)
+        await s.flush()
+        sec.document_id = doc.id
+        s.add(sec)
+        await s.flush()
+        s.add_all(
+            Chunk(
+                document_id=doc.id,
+                section_id=sec.id,
+                order_idx=i,
+                kind=ElementKind.text,
+                content=t,
+                token_count=12,
+                page_start=1,
+                page_end=1,
+                embedding=vec(i),
+            )
+            for i, t in enumerate(texts)
+        )
+        await s.commit()
+        yield doc.id
+        # A statement, not session.delete: the test may have deleted the document already.
+        await s.execute(delete(Document).where(Document.id == doc.id))
+        await s.commit()
 
 
 @pytest.fixture(scope="session")

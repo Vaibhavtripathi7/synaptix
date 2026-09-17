@@ -41,6 +41,9 @@ class Settings(BaseSettings):
     chunk_tokens: int = 400
     chunk_overlap_tokens: int = 60
 
+    # Retrieval
+    retrieval_k: int = 40  # fused candidates per question
+
 
 @lru_cache
 def get_settings() -> Settings:

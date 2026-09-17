@@ -54,7 +54,7 @@ from, so a client can highlight the exact blocks on the page.
 ## Develop
 
 ```sh
-make test                 # unit tests
+make test                 # unit tests + DB-backed retrieval tests (skipped if Postgres is down)
 make lint                 # ruff
 uv sync --extra local     # adds sentence-transformers for local embeddings
 ```
