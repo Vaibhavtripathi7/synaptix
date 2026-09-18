@@ -7,6 +7,7 @@ Citations are `[n]` markers that refer to the numbered passages the model was sh
 passages are returned alongside the answer so a client can resolve them to page/element."""
 
 import uuid
+from collections.abc import AsyncIterator
 from dataclasses import dataclass
 
 from pydantic import BaseModel
@@ -106,9 +107,13 @@ class Answerer:
         stmt = select(Document.title).where(Document.id.in_(document_ids)).limit(20)
         return [t for t in await session.scalars(stmt) if t]
 
-    async def answer(self, question: str, passages: list[Passage]) -> str:
+    async def stream(self, question: str, passages: list[Passage]) -> AsyncIterator[str]:
         prompt = f"Passages:\n\n{render(passages)}\n\nQuestion: {question}"
-        return await self.llm.generate(prompt, system=_ANSWER_SYSTEM, think=True)
+        async for token in self.llm.stream(prompt, system=_ANSWER_SYSTEM):
+            yield token
+
+    async def answer(self, question: str, passages: list[Passage]) -> str:
+        return "".join([t async for t in self.stream(question, passages)])
 
 
 def build_answerer(settings: Settings) -> Answerer:

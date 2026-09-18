@@ -10,16 +10,17 @@ the passages it came from, resolvable to the exact blocks and bounding boxes on 
 ```
 client  ──►  FastAPI (app/api)  ──►  Postgres 17 + pgvector  ◄──  arq worker (app/workers)
               │ documents · query                 ▲                   └─ ingest: parse → OCR/enrich → chunk → embed
+              │ SSE answers                       │
               └── /healthz /readyz
 ```
 
 | Layer | Choice | Why |
 |---|---|---|
-| API | FastAPI, async SQLAlchemy 2.0 | typed schemas, one DB session per request |
+| API | FastAPI, async SQLAlchemy 2.0 | streaming answers, typed schemas, one DB session per request |
 | Jobs | arq on Redis | async-native, tiny footprint, timeouts built in |
 | Store | Postgres 17 + pgvector (HNSW) + tsvector (GIN) | vectors, FTS, metadata and transactions in one place |
 | Parse | PyMuPDF + `pymupdf-layout` | block classes (heading/text/table/figure) with bboxes, tables as Markdown |
-| LLM | Gemini via `google-genai` (Vertex or API key) | vision for figures/OCR, structured JSON output |
+| LLM | Gemini via `google-genai` (Vertex or API key) | vision for figures/OCR, structured JSON output, streaming |
 | Embed | `gemini-embedding-001` @1024-d, or local `bge-m3` | Matryoshka truncation lets both share one column |
 | Rerank | listwise Gemini, or local `bge-reranker-v2-m3` | precision on top of RRF without a hosted reranking service |
 
@@ -43,6 +44,7 @@ curl -F file=@paper.pdf localhost:8000/api/v1/documents   # 202 → queued … r
 curl localhost:8000/api/v1/query -H 'content-type: application/json' \
   -d '{"question": "What does it conclude about genetic algorithms?", "document_ids": ["<id>"]}'
   # {"answer": "... [1][3]", "passages": [{"n": 1, "page_start": 13, "heading_path": [...], "chunk_ids": [...]}]}
+  # "stream": true → Server-Sent Events: passages, token…, done
 ```
 
 `GET /documents/{id}/chunks/{chunk_id}` returns the page elements (with bboxes) behind a citation,

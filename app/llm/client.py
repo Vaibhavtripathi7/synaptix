@@ -1,7 +1,7 @@
 """Async wrapper over google-genai: one place for auth, retries, concurrency, structured output."""
 
 import asyncio
-from collections.abc import Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
 from functools import partial
 from typing import TypeVar
 
@@ -122,6 +122,31 @@ class Gemini:
         if isinstance(parsed, schema):
             return parsed
         return schema.model_validate_json(resp.text or "{}")
+
+    async def stream(
+        self,
+        content: Content,
+        *,
+        system: str | None = None,
+        strong: bool = False,
+        temperature: float = 0.2,
+        think: bool = True,
+    ) -> AsyncIterator[str]:
+        config = self._config(system, temperature, None, None, think)
+
+        async def open_stream(model: str):
+            it = await self._client.aio.models.generate_content_stream(
+                model=model, contents=content, config=config
+            )
+            # Quota/overload errors surface on the first read, so read it inside the failover.
+            return it, await anext(it, None)
+
+        async with self._sem:
+            it, chunk = await self._call(self._chains[strong], open_stream)
+            while chunk is not None:
+                if chunk.text:
+                    yield chunk.text
+                chunk = await anext(it, None)
 
     async def embed(self, texts: list[str], *, query: bool = False) -> list[list[float]]:
         """Embeds in batches of 64 (API cap is 100). Truncates to the configured dimension

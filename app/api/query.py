@@ -1,6 +1,9 @@
+import json
 import uuid
+from collections.abc import AsyncIterator
 
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -18,6 +21,7 @@ router = APIRouter(tags=["query"])
 class QueryRequest(BaseModel):
     question: str = Field(min_length=3, max_length=2000)
     document_ids: list[uuid.UUID] | None = None  # None = every ready document
+    stream: bool = False
 
 
 class PassageOut(BaseModel):
@@ -57,17 +61,39 @@ async def _searchable(session: AsyncSession, requested: list[uuid.UUID] | None) 
 
 
 @router.post("/query", response_model=QueryResponse)
-async def query(body: QueryRequest, answerer: AnswererDep, session: SessionDep) -> QueryResponse:
-    """Answer a question with citations: `[n]` markers in the answer refer to `passages`."""
+async def query(
+    body: QueryRequest,
+    answerer: AnswererDep,
+    session: SessionDep,
+):
+    """Answer a question with citations. With `stream: true` the response is Server-Sent
+    Events: one `passages` event, then `token` events, then `done`."""
     document_ids = await _searchable(session, body.document_ids)
     if not document_ids:
         raise HTTPException(404, "no ready documents to search")
     retrieval = await answerer.retrieve(session, body.question, document_ids)
     if not retrieval.passages:
         raise HTTPException(404, "no indexed content matched; is the document ready?")
-    return QueryResponse(
-        answer=await answerer.answer(body.question, retrieval.passages),
-        passages=[PassageOut.from_passage(p) for p in retrieval.passages],
-        queries=retrieval.queries,
-        candidates=retrieval.candidates,
+    passages = [PassageOut.from_passage(p) for p in retrieval.passages]
+    if not body.stream:
+        answer = await answerer.answer(body.question, retrieval.passages)
+        return QueryResponse(
+            answer=answer,
+            passages=passages,
+            queries=retrieval.queries,
+            candidates=retrieval.candidates,
+        )
+
+    async def events() -> AsyncIterator[str]:
+        yield _sse("passages", [p.model_dump(mode="json") for p in passages])
+        async for token in answerer.stream(body.question, retrieval.passages):
+            yield _sse("token", token)
+        yield _sse("done", {"queries": retrieval.queries, "candidates": retrieval.candidates})
+
+    return StreamingResponse(
+        events(), media_type="text/event-stream", headers={"Cache-Control": "no-cache"}
     )
+
+
+def _sse(event: str, data) -> str:
+    return f"event: {event}\ndata: {json.dumps(data)}\n\n"
