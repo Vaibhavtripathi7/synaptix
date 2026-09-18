@@ -3,14 +3,17 @@
 Production RAG over PDFs. Documents are parsed into typed, bbox-anchored blocks — text, tables,
 figures, and **scanned or handwritten pages**, which a vision model transcribes to Markdown and
 LaTeX — chunked along their heading structure, and indexed for hybrid search. Every answer cites
-the passages it came from, resolvable to the exact blocks and bounding boxes on the page.
+the passages it came from, resolvable to the exact blocks and bounding boxes on the page. On top
+of retrieval sits an analysis DAG (competitor profile, SWOT and likely strategy,
+combined into a key analysis) built from targeted retrieval rather than a truncated document
+dump, so every point it makes is evidence-linked.
 
 ## Architecture
 
 ```
 client  ──►  FastAPI (app/api)  ──►  Postgres 17 + pgvector  ◄──  arq worker (app/workers)
-              │ documents · query                 ▲                   └─ ingest: parse → OCR/enrich → chunk → embed
-              │ SSE answers · summaries           │
+              │ documents · query · analyses      ▲                   ├─ ingest: parse → OCR/enrich → chunk → embed
+              │ SSE answers · summaries           │                   └─ analyze: profile · SWOT · strategy → key analysis
               └── /healthz /readyz
 ```
 
@@ -37,7 +40,7 @@ make api                         # http://localhost:8000/docs (API)
 make worker                      # second terminal
 ```
 
-### API
+### API in three calls
 
 ```sh
 curl -F file=@paper.pdf localhost:8000/api/v1/documents   # 202 → queued … ready
@@ -45,6 +48,8 @@ curl localhost:8000/api/v1/query -H 'content-type: application/json' \
   -d '{"question": "What does it conclude about genetic algorithms?", "document_ids": ["<id>"]}'
   # {"answer": "... [1][3]", "passages": [{"n": 1, "page_start": 13, "heading_path": [...], "chunk_ids": [...]}]}
   # "stream": true → Server-Sent Events: passages, token…, done
+curl -X POST localhost:8000/api/v1/analyses -H 'content-type: application/json' \
+  -d '{"kind": "competitor", "document_ids": ["<id>"]}'                  # or "comparison" with two ids
 ```
 
 `GET /documents/{id}/chunks/{chunk_id}` returns the page elements (with bboxes) behind a citation,
@@ -58,6 +63,16 @@ The six rankings are fused with reciprocal rank fusion, the top 40 are graded li
 LLM (or a local cross-encoder), and the best 8 become the context: a chunk is swapped for its
 whole section when that section is short or several hits share it. The answer cites `[n]`
 markers that map back to page ranges, heading paths and element kinds.
+
+### Analysis agents
+
+Each agent is a set of retrieval *facets* (e.g. "revenue, sales channels and financial
+results") whose hits are unioned into one budgeted context, plus a structured prompt; the output
+is a Pydantic model where every item lists the passage numbers it rests on. A competitor analysis
+runs profile, SWOT and strategy, then a key analysis that reads all three. A comparison
+retrieves the same facets from two documents. A stage that finds nothing returns an empty list
+instead of inventing content. Runs are rows in `analysis_runs` storing the passages each stage
+used, so results stay auditable.
 
 ### Resilience
 

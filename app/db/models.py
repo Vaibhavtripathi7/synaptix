@@ -43,6 +43,18 @@ class ElementKind(StrEnum):
     figure = "figure"
 
 
+class AnalysisKind(StrEnum):
+    competitor = "competitor"  # profile, SWOT, strategy → key analysis, over one document
+    comparison = "comparison"  # two documents compared
+
+
+class RunStatus(StrEnum):
+    queued = "queued"
+    running = "running"
+    done = "done"
+    failed = "failed"
+
+
 def _uuid_pk() -> Mapped[uuid.UUID]:
     return mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
 
@@ -146,3 +158,21 @@ class Chunk(Base):
             postgresql_ops={"embedding": "vector_cosine_ops"},
         ),
     )
+
+
+class AnalysisRun(Base):
+    """One execution of an analysis DAG over one or two documents; result is stage → JSON."""
+
+    __tablename__ = "analysis_runs"
+    __mapper_args__ = {"eager_defaults": True}
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    kind: Mapped[AnalysisKind] = mapped_column(Enum(AnalysisKind, name="analysis_kind"))
+    document_ids: Mapped[list[uuid.UUID]] = mapped_column(ARRAY(UUID(as_uuid=True)))
+    status: Mapped[RunStatus] = mapped_column(
+        Enum(RunStatus, name="run_status"), default=RunStatus.queued
+    )
+    result: Mapped[dict | None] = mapped_column(JSONB)
+    error: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

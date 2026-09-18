@@ -5,7 +5,7 @@ from arq.connections import RedisSettings
 from fastapi import FastAPI
 from sqlalchemy import text
 
-from app.api import documents, query
+from app.api import analyses, documents, query
 from app.core.logging import configure_logging
 from app.core.settings import get_settings
 from app.db.session import engine
@@ -28,6 +28,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Synaptix", version="0.1.0", lifespan=lifespan)
 app.include_router(documents.router, prefix="/api/v1")
 app.include_router(query.router, prefix="/api/v1")
+app.include_router(analyses.router, prefix="/api/v1")
 
 
 @app.get("/healthz", include_in_schema=False)

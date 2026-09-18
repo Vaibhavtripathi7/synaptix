@@ -26,7 +26,7 @@ class Settings(BaseSettings):
     gcp_project: str | None = None
     gcp_location: str = "us-central1"
     llm_model: str = "gemini-3.5-flash"  # fast: enrichment, rerank, Q&A
-    llm_model_strong: str = "gemini-pro-latest"  # reasoning-heavy work
+    llm_model_strong: str = "gemini-pro-latest"  # reasoning: analysis agents
     # Tried in order when the primary returns 429/503 (quota, outage). JSON list in env.
     llm_fallback_models: list[str] = ["gemini-3-flash-preview", "gemini-3.5-flash-lite"]
     llm_concurrency: int = 4

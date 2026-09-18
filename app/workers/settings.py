@@ -6,6 +6,7 @@ from collections.abc import Awaitable, Callable
 import structlog
 from arq.connections import RedisSettings
 
+from app.analysis.pipeline import run_analysis
 from app.core.logging import configure_logging
 from app.core.settings import get_settings
 from app.ingest.pipeline import ingest_document
@@ -48,8 +49,12 @@ async def ingest(ctx: dict, document_id: str) -> None:
     )
 
 
+async def analyze(ctx: dict, run_id: str) -> None:
+    await _run_job("analyze", lambda: run_analysis(uuid.UUID(run_id), ctx["answerer"]))
+
+
 class WorkerSettings:
-    functions = [ingest]
+    functions = [ingest, analyze]
     on_startup = startup
     redis_settings = RedisSettings.from_dsn(get_settings().redis_url)
     max_jobs = 2  # parsing is CPU-bound; LLM stages are bounded by llm_concurrency
