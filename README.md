@@ -10,7 +10,7 @@ the passages it came from, resolvable to the exact blocks and bounding boxes on 
 ```
 client  ──►  FastAPI (app/api)  ──►  Postgres 17 + pgvector  ◄──  arq worker (app/workers)
               │ documents · query                 ▲                   └─ ingest: parse → OCR/enrich → chunk → embed
-              │ SSE answers                       │
+              │ SSE answers · summaries           │
               └── /healthz /readyz
 ```
 

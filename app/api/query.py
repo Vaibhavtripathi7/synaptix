@@ -12,7 +12,9 @@ from app.api.deps import (
     AnswererDep,
     SessionDep,
 )
+from app.api.documents import get_or_404
 from app.db.models import DocStatus, Document, ElementKind
+from app.rag.summarize import summarize_document
 from app.retrieval.context import Passage
 
 router = APIRouter(tags=["query"])
@@ -97,3 +99,24 @@ async def query(
 
 def _sse(event: str, data) -> str:
     return f"event: {event}\ndata: {json.dumps(data)}\n\n"
+
+
+@router.post("/documents/{document_id}/summary")
+async def summary(
+    document_id: uuid.UUID,
+    answerer: AnswererDep,
+    session: SessionDep,
+    refresh: bool = False,
+) -> dict:
+    """Map-reduce summary of a ready document; cached on the document until `refresh=true`."""
+    doc = await _ready(session, document_id)
+    if doc.summary is None or refresh:
+        await summarize_document(session, doc, answerer.llm)
+    return {"document_id": doc.id, "summary": doc.summary}
+
+
+async def _ready(session: AsyncSession, document_id: uuid.UUID) -> Document:
+    doc = await get_or_404(session, document_id)
+    if doc.status is not DocStatus.ready:
+        raise HTTPException(409, f"document is {doc.status.value}, not ready")
+    return doc
