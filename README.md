@@ -3,18 +3,18 @@
 Production RAG over PDFs. Documents are parsed into typed, bbox-anchored blocks — text, tables,
 figures, and **scanned or handwritten pages**, which a vision model transcribes to Markdown and
 LaTeX — chunked along their heading structure, and indexed for hybrid search. Every answer cites
-the passages it came from, resolvable to the exact blocks and bounding boxes on the page. On top
-of retrieval sits an analysis DAG (competitor profile, SWOT and likely strategy,
+the passages it came from, and clicking a citation highlights that exact block on the rendered
+page. On top of retrieval sits an analysis DAG (competitor profile, SWOT and likely strategy,
 combined into a key analysis) built from targeted retrieval rather than a truncated document
 dump, so every point it makes is evidence-linked.
 
 ## Architecture
 
 ```
-client  ──►  FastAPI (app/api)  ──►  Postgres 17 + pgvector  ◄──  arq worker (app/workers)
-              │ documents · query · analyses      ▲                   ├─ ingest: parse → OCR/enrich → chunk → embed
-              │ SSE answers · graph · summary     │                   └─ analyze: profile · SWOT · strategy → key analysis
-              └── /healthz /readyz
+browser (web/)  ──►  FastAPI (app/api)  ──►  Postgres 17 + pgvector  ◄──  arq worker (app/workers)
+   │ pdf.js page      │ documents · query · analyses      ▲                   ├─ ingest: parse → OCR/enrich → chunk → embed
+   │ + highlights      │ SSE answers · graph · summary     │                   └─ analyze: profile · SWOT · strategy → key analysis
+   └──────────────────┴── /healthz /readyz
 ```
 
 | Layer | Choice | Why |
@@ -26,6 +26,7 @@ client  ──►  FastAPI (app/api)  ──►  Postgres 17 + pgvector  ◄─�
 | LLM | Gemini via `google-genai` (Vertex or API key) | vision for figures/OCR, structured JSON output, streaming |
 | Embed | `gemini-embedding-001` @1024-d, or local `bge-m3` | Matryoshka truncation lets both share one column |
 | Rerank | listwise Gemini, or local `bge-reranker-v2-m3` | precision on top of RRF without a hosted reranking service |
+| UI | static HTML/JS, pdf.js | no build step, no framework; the page is the proof |
 
 ## Run
 
@@ -36,7 +37,7 @@ cp .env.example .env            # add SYNAPTIX_GOOGLE_API_KEY (or Vertex project
 uv sync                          # project-local Python 3.12 + deps in ./.venv
 make infra                       # Postgres :5433 and Redis :6380 (non-default ports, no collisions)
 make migrate
-make api                         # http://localhost:8000/docs (API)
+make api                         # http://localhost:8000  (UI)   http://localhost:8000/docs (API)
 make worker                      # second terminal
 ```
 
@@ -53,8 +54,8 @@ curl -X POST localhost:8000/api/v1/analyses -H 'content-type: application/json' 
 curl -X POST localhost:8000/api/v1/documents/<id>/graph   # entity graph, cached
 ```
 
-`GET /documents/{id}/chunks/{chunk_id}` returns the page elements (with bboxes) behind a citation,
-so a client can highlight the exact blocks on the page.
+`GET /documents/{id}/chunks/{chunk_id}` returns the page elements (with bboxes) behind a citation;
+that is what the UI highlights.
 
 ### Retrieval, in one paragraph
 

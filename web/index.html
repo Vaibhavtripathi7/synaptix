@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Synaptix</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Serif:ital,wght@0,400;0,500;1,400&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <aside class="library">
+    <h1>Synaptix</h1>
+    <label class="upload">
+      <input type="file" id="file" accept="application/pdf" hidden>
+      <span>Upload a PDF</span>
+    </label>
+    <ul id="documents" class="documents"></ul>
+    <p class="hint">Answers cite the page they came from. Click a citation to see it.</p>
+  </aside>
+
+  <main class="workbench">
+    <header class="workbench-head">
+      <h2 id="doc-title">No document selected</h2>
+    </header>
+
+    <section class="tab">
+      <div id="thread" class="thread">
+        <p class="empty">Upload a PDF to start, or pick one from the library.</p>
+      </div>
+      <form id="ask-form" class="ask">
+        <textarea id="question" rows="2" placeholder="Ask this document" required></textarea>
+        <button type="submit" id="ask-btn">Ask</button>
+      </form>
+    </section>
+  </main>
+
+  <aside class="page-pane">
+    <div class="page-head">
+      <span id="page-label">Evidence appears here</span>
+      <span class="page-nav"><button id="prev">Previous</button><button id="next">Next</button></span>
+    </div>
+    <div class="page-scroll"><div class="page-stage" id="stage"><canvas id="canvas"></canvas><div id="marks" class="marks"></div></div></div>
+    <div id="passage" class="passage"></div>
+  </aside>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/15.0.7/marked.min.js"></script>
+  <script type="module" src="app.js"></script>
+</body>
+</html>

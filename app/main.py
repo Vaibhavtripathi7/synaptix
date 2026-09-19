@@ -3,6 +3,7 @@ from contextlib import asynccontextmanager
 from arq import create_pool
 from arq.connections import RedisSettings
 from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
 
 from app.api import analyses, documents, query
@@ -43,3 +44,7 @@ async def readyz() -> dict:
         await conn.execute(text("select 1"))
     await app.state.queue.ping()
     return {"status": "ready"}
+
+
+# Last: the UI is a static single page; mounted after the API and probes so it never shadows them.
+app.mount("/", StaticFiles(directory="web", html=True), name="ui")
