@@ -76,6 +76,7 @@ class Document(Base):
     error: Mapped[str | None] = mapped_column(Text)
     title: Mapped[str | None] = mapped_column(String(512))
     summary: Mapped[str | None] = mapped_column(Text)
+    graph: Mapped[dict | None] = mapped_column(JSONB)  # entity graph, built on demand
     meta: Mapped[dict] = mapped_column(JSONB, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(

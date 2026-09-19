@@ -14,6 +14,7 @@ from app.api.deps import (
 )
 from app.api.documents import get_or_404
 from app.db.models import DocStatus, Document, ElementKind
+from app.rag.graph import build_graph
 from app.rag.summarize import summarize_document
 from app.retrieval.context import Passage
 
@@ -113,6 +114,21 @@ async def summary(
     if doc.summary is None or refresh:
         await summarize_document(session, doc, answerer.llm)
     return {"document_id": doc.id, "summary": doc.summary}
+
+
+@router.post("/documents/{document_id}/graph")
+async def graph(
+    document_id: uuid.UUID,
+    answerer: AnswererDep,
+    session: SessionDep,
+    refresh: bool = False,
+) -> dict:
+    """Entity–relation graph of a ready document; cached until `refresh=true`."""
+    doc = await _ready(session, document_id)
+    graph = doc.graph
+    if graph is None or refresh:
+        graph = await build_graph(session, doc, answerer.llm)
+    return graph
 
 
 async def _ready(session: AsyncSession, document_id: uuid.UUID) -> Document:

@@ -13,7 +13,7 @@ dump, so every point it makes is evidence-linked.
 ```
 client  ──►  FastAPI (app/api)  ──►  Postgres 17 + pgvector  ◄──  arq worker (app/workers)
               │ documents · query · analyses      ▲                   ├─ ingest: parse → OCR/enrich → chunk → embed
-              │ SSE answers · summaries           │                   └─ analyze: profile · SWOT · strategy → key analysis
+              │ SSE answers · graph · summary     │                   └─ analyze: profile · SWOT · strategy → key analysis
               └── /healthz /readyz
 ```
 
@@ -40,7 +40,7 @@ make api                         # http://localhost:8000/docs (API)
 make worker                      # second terminal
 ```
 
-### API in three calls
+### API in four calls
 
 ```sh
 curl -F file=@paper.pdf localhost:8000/api/v1/documents   # 202 → queued … ready
@@ -50,6 +50,7 @@ curl localhost:8000/api/v1/query -H 'content-type: application/json' \
   # "stream": true → Server-Sent Events: passages, token…, done
 curl -X POST localhost:8000/api/v1/analyses -H 'content-type: application/json' \
   -d '{"kind": "competitor", "document_ids": ["<id>"]}'                  # or "comparison" with two ids
+curl -X POST localhost:8000/api/v1/documents/<id>/graph   # entity graph, cached
 ```
 
 `GET /documents/{id}/chunks/{chunk_id}` returns the page elements (with bboxes) behind a citation,
