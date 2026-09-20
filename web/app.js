@@ -31,6 +31,7 @@ async function loadDocs() {
     li.onclick = () => select(d);
     return li;
   }));
+  fillCompare();
   if (state.doc) {
     const fresh = state.docs.find((d) => d.id === state.doc.id);
     if (fresh && fresh.status !== state.doc.status) select(fresh);
@@ -52,13 +53,28 @@ $("file").onchange = async (e) => {
   e.target.value = "";
 };
 
+// Comparison candidates: every other ready document. Refilled on selection, not just on load.
+function fillCompare() {
+  const others = state.docs.filter((d) => d.status === "ready" && d.id !== state.doc?.id);
+  $("compare-with").replaceChildren(...others.map((d) => new Option(d.title || d.filename, d.id)));
+  $("run-comparison").disabled = !others.length;
+}
+
 async function select(doc) {
   state.doc = doc;
+  fillCompare();
   $("doc-title").textContent = doc.title || doc.filename;
   document.querySelectorAll(".documents li").forEach((li, i) => li.classList.toggle("selected", state.docs[i].id === doc.id));
   $("thread").innerHTML = doc.status === "ready"
     ? `<p class="empty">Ask anything about this document.</p>`
     : `<p class="empty">${STATE_WORDS[doc.status]}${doc.error ? `: ${esc(doc.error)}` : ""}</p>`;
+  $("summary").innerHTML = doc.summary ? renderMarkdown(doc.summary)
+    : `<p class="empty">${doc.status === "ready" ? `<button id="summarise">Summarise this document</button>` : "Not ready yet."}</p>`;
+  $("summarise")?.addEventListener("click", summarise);
+  $("analysis").innerHTML = `<p class="empty">Loading analyses…</p>`;
+  loadAnalyses();
+  $("graph").replaceChildren();
+  $("graph-stats").textContent = "";
   $("marks").replaceChildren();
   $("passage").replaceChildren();
   state.pdf = await pdfjs.getDocument(`${API}/documents/${doc.id}/file`).promise;
@@ -128,7 +144,9 @@ function withCites(html, passages) {
 document.addEventListener("click", (e) => {
   const b = e.target.closest(".cite");
   if (!b) return;
-  const p = state.passages[+b.dataset.n];
+  const scope = b.closest("[data-passages]");
+  const passages = scope ? JSON.parse(scope.dataset.passages) : state.passages;
+  const p = Array.isArray(passages) ? passages.find((x) => x.n === +b.dataset.n) : passages[+b.dataset.n];
   if (p) reveal(p, b);
 });
 
@@ -192,7 +210,102 @@ function drawMarks(page, viewport) {
 $("prev").onclick = () => showPage(state.page - 1);
 $("next").onclick = () => showPage(state.page + 1);
 
-// ---------- utils ----------
+// ---------- summary ----------
+async function summarise() {
+  $("summary").innerHTML = `<p class="empty">Summarising…</p>`;
+  try {
+    const { summary } = await api(`/documents/${state.doc.id}/summary`, { method: "POST" });
+    state.doc.summary = summary;
+    $("summary").innerHTML = renderMarkdown(summary);
+  } catch (err) { $("summary").innerHTML = `<p class="empty">Could not summarise: ${esc(err.message)}</p>`; }
+}
+
+// ---------- analysis ----------
+const STAGE_TITLES = {
+  profile: "Competitor profile", swot: "SWOT analysis", strategy: "Likely strategy",
+  key_analysis: "Key analysis", comparison: "Comparison",
+};
+const FIELD_TITLES = { swot: "SWOT", first_can_learn: "What the first can learn", second_can_learn: "What the second can learn" };
+const inline = (md) => renderMarkdown(md).replace(/^<p>/, "").replace(/<\/p>\s*$/, "");
+
+async function loadAnalyses() {
+  if (!state.doc) return;
+  const runs = await api(`/analyses?document_id=${state.doc.id}`);
+  const box = $("analysis");
+  if (!runs.length) { box.innerHTML = `<p class="empty">No analyses yet for this document.</p>`; return; }
+  box.replaceChildren(...runs.map(renderRun));
+  if (runs.some((r) => ["queued", "running"].includes(r.status))) setTimeout(loadAnalyses, 5000);
+}
+
+function renderRun(run) {
+  const div = document.createElement("div");
+  div.className = "run";
+  const when = new Date(run.created_at).toLocaleString();
+  const kind = run.kind === "competitor" ? "Competitor analysis" : "Comparison";
+  if (run.status !== "done") {
+    div.innerHTML = `<div class="head">${kind}, ${when}</div><p class="empty">${
+      run.status === "failed" ? `Failed: ${esc(run.error)}` : "Working through the document…"
+    }</p>`;
+    return div;
+  }
+  let html = `<div class="head">${kind}, ${when}</div>`;
+  for (const [stage, { output, passages }] of Object.entries(run.result)) {
+    html += `<section data-passages='${esc(JSON.stringify(passages))}'>`;
+    html += `<h3>${STAGE_TITLES[stage] || stage}</h3>`;
+    for (const [field, value] of Object.entries(output)) {
+      if (typeof value === "string") { html += inline(value); continue; }
+      if (!value.length) continue;
+      const item = (x) => inline(x.text ?? String(x));
+      html += `<h4>${FIELD_TITLES[field] || field.replaceAll("_", " ")}</h4><ul>`;
+      html += value.map((x) => `<li>${item(x)}${cites(x.evidence)}</li>`).join("");
+      html += "</ul>";
+    }
+    html += "</section>";
+  }
+  div.innerHTML = html;
+  return div;
+}
+
+const cites = (ev) =>
+  ev?.length ? " " + ev.map((n) => `<button class="cite" data-n="${n}">${n}</button>`).join("") : "";
+
+$("run-competitor").onclick = () => startAnalysis({ kind: "competitor", document_ids: [state.doc.id] });
+$("run-comparison").onclick = () => {
+  const other = $("compare-with").value;
+  if (other) startAnalysis({ kind: "comparison", document_ids: [state.doc.id, other] });
+};
+async function startAnalysis(body) {
+  if (!state.doc || state.doc.status !== "ready") return;
+  try { await api("/analyses", { method: "POST", body: JSON.stringify(body) }); loadAnalyses(); }
+  catch (err) { alert(`Could not start: ${err.message}`); }
+}
+
+// ---------- graph ----------
+const TYPE_COLOR = { organisation: "#1f4e79", person: "#7a3e9d", product: "#2e7d4f", technology: "#0f766e", method: "#0f766e", metric: "#b45309", location: "#6b7280", concept: "#9ca3af" };
+$("build-graph").onclick = async () => {
+  if (!state.doc || state.doc.status !== "ready") return;
+  $("graph-stats").textContent = "Extracting entities…";
+  try {
+    const g = await api(`/documents/${state.doc.id}/graph`, { method: "POST" });
+    $("graph-stats").textContent = `${g.nodes.length} entities, ${g.edges.length} relations`;
+    const nodes = g.nodes.map((n) => ({ id: n.id, label: n.name, value: n.mentions, color: TYPE_COLOR[n.type] || TYPE_COLOR.concept, title: n.type }));
+    const edges = g.edges.map((e) => ({ from: e.source, to: e.target, label: e.predicate, title: e.pages ? `pp. ${e.pages[0]}–${e.pages[1]}` : "" }));
+    new vis.Network($("graph"), { nodes, edges }, {
+      nodes: { shape: "dot", scaling: { min: 8, max: 26 }, font: { face: "IBM Plex Sans", size: 13, color: "#1f2328" }, borderWidth: 0 },
+      edges: { color: { color: "#9aa3ad" }, font: { face: "IBM Plex Sans", size: 10, color: "#5b6470", strokeWidth: 0 }, arrows: "to", smooth: { type: "continuous" } },
+      physics: { stabilization: { iterations: 200 }, barnesHut: { gravitationalConstant: -6000, springLength: 140 } },
+      interaction: { hover: true },
+    });
+  } catch (err) { $("graph-stats").textContent = `Could not build graph: ${err.message}`; }
+};
+
+// ---------- tabs & utils ----------
+$("tabs").onclick = (e) => {
+  const tab = e.target.dataset.tab;
+  if (!tab) return;
+  document.querySelectorAll(".tabs button").forEach((b) => b.classList.toggle("active", b === e.target));
+  document.querySelectorAll(".tab").forEach((s) => s.classList.toggle("active", s.id === `tab-${tab}`));
+};
 function renderMarkdown(md) { return marked.parse(String(md ?? "")); }
 
 function esc(s) { return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }

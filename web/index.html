@@ -22,9 +22,15 @@
   <main class="workbench">
     <header class="workbench-head">
       <h2 id="doc-title">No document selected</h2>
+      <nav class="tabs" id="tabs">
+        <button data-tab="ask" class="active">Ask</button>
+        <button data-tab="summary">Summary</button>
+        <button data-tab="analysis">Analysis</button>
+        <button data-tab="graph">Graph</button>
+      </nav>
     </header>
 
-    <section class="tab">
+    <section id="tab-ask" class="tab active">
       <div id="thread" class="thread">
         <p class="empty">Upload a PDF to start, or pick one from the library.</p>
       </div>
@@ -32,6 +38,26 @@
         <textarea id="question" rows="2" placeholder="Ask this document" required></textarea>
         <button type="submit" id="ask-btn">Ask</button>
       </form>
+    </section>
+
+    <section id="tab-summary" class="tab">
+      <div id="summary" class="prose"><p class="empty">Select a ready document to summarise it.</p></div>
+    </section>
+
+    <section id="tab-analysis" class="tab">
+      <div class="analysis-actions">
+        <button id="run-competitor">Run competitor analysis</button>
+        <span class="compare">
+          <label>compare with <select id="compare-with"></select></label>
+          <button id="run-comparison">Compare documents</button>
+        </span>
+      </div>
+      <div id="analysis" class="prose"><p class="empty">No analyses yet for this document.</p></div>
+    </section>
+
+    <section id="tab-graph" class="tab">
+      <div class="graph-actions"><button id="build-graph">Build entity graph</button><span id="graph-stats"></span></div>
+      <div id="graph" class="graph"></div>
     </section>
   </main>
 
@@ -45,6 +71,7 @@
   </aside>
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/15.0.7/marked.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/vis-network/9.1.9/dist/vis-network.min.js"></script>
   <script type="module" src="app.js"></script>
 </body>
 </html>
