@@ -11,7 +11,28 @@ const STATE_WORDS = {
 };
 
 // ---------- api ----------
-const call = (path, opts = {}) => fetch(API + path, opts);
+// The access key, if the server requires one, is kept in this browser and sent on every call.
+const store = {
+  get: (k) => { try { return localStorage.getItem(`synaptix.${k}`) || ""; } catch { return ""; } },
+  set: (k, v) => { try { v ? localStorage.setItem(`synaptix.${k}`, v) : localStorage.removeItem(`synaptix.${k}`); } catch {} },
+};
+function headers(extra = {}) {
+  const h = { ...extra };
+  if (store.get("key")) h.authorization = `Bearer ${store.get("key")}`;
+  return h;
+}
+// Every API call goes through here, so the auth header is added in one place.
+async function call(path, opts = {}) {
+  const r = await fetch(API + path, { ...opts, headers: headers(opts.headers) });
+  if (r.status === 401) {
+    const detail = await r.clone().json().then((d) => String(d.detail || "")).catch(() => "");
+    if (/invalid or missing API key/.test(detail)) {
+      const key = prompt("This server requires an access key.");
+      if (key) { store.set("key", key.trim()); return call(path, opts); }
+    }
+  }
+  return r;
+}
 
 async function api(path, opts = {}) {
   const r = await call(path, { headers: { "content-type": "application/json" }, ...opts });
@@ -77,7 +98,7 @@ async function select(doc) {
   $("graph-stats").textContent = "";
   $("marks").replaceChildren();
   $("passage").replaceChildren();
-  state.pdf = await pdfjs.getDocument(`${API}/documents/${doc.id}/file`).promise;
+  state.pdf = await pdfjs.getDocument({ url: `${API}/documents/${doc.id}/file`, httpHeaders: headers() }).promise;
   showPage(1);
 }
 

@@ -19,6 +19,9 @@ class Settings(BaseSettings):
     redis_url: str = "redis://localhost:6380/0"  # job queue: must never evict
     storage_dir: Path = Path("data/storage")  # source PDFs and extracted figures
     max_upload_mb: int = 100
+    # Comma-separated bearer keys accepted on /api/*. Empty (the default) leaves the API open,
+    # which is only appropriate for local development.
+    api_keys: str = ""
 
     # Gemini: "vertex" uses ADC + project, "api_key" uses an AI Studio key
     gemini_backend: Literal["vertex", "api_key"] = "api_key"

@@ -14,7 +14,7 @@ dump, so every point it makes is evidence-linked.
 browser (web/)  ──►  FastAPI (app/api)  ──►  Postgres 17 + pgvector  ◄──  arq worker (app/workers)
    │ pdf.js page      │ documents · query · analyses      ▲                   ├─ ingest: parse → OCR/enrich → chunk → embed
    │ + highlights      │ SSE answers · graph · summary     │                   └─ analyze: profile · SWOT · strategy → key analysis
-   └──────────────────┴── /healthz /readyz
+   └──────────────────┴── bearer-key auth · request ids · access log · /healthz /readyz
 ```
 
 | Layer | Choice | Why |
@@ -55,7 +55,8 @@ curl -X POST localhost:8000/api/v1/documents/<id>/graph   # entity graph, cached
 ```
 
 `GET /documents/{id}/chunks/{chunk_id}` returns the page elements (with bboxes) behind a citation;
-that is what the UI highlights.
+that is what the UI highlights. Set `SYNAPTIX_API_KEYS=key1,key2` to additionally gate the whole
+instance behind `Authorization: Bearer` (the UI asks for it once and remembers it).
 
 ### Retrieval, in one paragraph
 
@@ -80,7 +81,8 @@ used, so results stay auditable.
 
 `app/llm/client.py` retries transport errors in place and fails over to the next model in
 `SYNAPTIX_LLM_FALLBACK_MODELS` on quota 429s or 503 overloads. Enrichment degrades per element
-(a figure that could not be captioned keeps its caption text) instead of failing the document.
+(a figure that could not be captioned keeps its caption text) instead of failing the document. Each request carries an
+`x-request-id` that appears on every log line and is echoed to the client.
 
 ## Develop
 
