@@ -1,0 +1,30 @@
+name: ci
+on:
+  push: { branches: [main] }
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      db:
+        image: pgvector/pgvector:pg17
+        env: { POSTGRES_USER: synaptix, POSTGRES_PASSWORD: synaptix, POSTGRES_DB: synaptix }
+        ports: ["5433:5432"]
+        options: --health-cmd "pg_isready -U synaptix" --health-interval 5s --health-timeout 3s --health-retries 10
+    env:
+      SYNAPTIX_DATABASE_URL: postgresql+asyncpg://synaptix:synaptix@localhost:5433/synaptix
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with: { enable-cache: true }
+      - run: uv sync --frozen
+      - run: uv run ruff check . && uv run ruff format --check .
+      - run: uv run alembic upgrade head
+      - run: uv run pytest -q
+
+  image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t synaptix:ci .

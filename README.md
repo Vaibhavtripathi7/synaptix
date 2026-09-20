@@ -41,6 +41,8 @@ make api                         # http://localhost:8000  (UI)   http://localhos
 make worker                      # second terminal
 ```
 
+Fully containerised: `docker compose --profile app up --build`.
+
 ### API in four calls
 
 ```sh
@@ -94,5 +96,6 @@ uv run python -m eval.run --answers  # also generate answers and grade faithfuln
 uv sync --extra local     # adds sentence-transformers for local embeddings / reranking
 ```
 
-Configuration is entirely via `SYNAPTIX_*` environment variables (see
+CI (`.github/workflows/ci.yml`) runs lint, migrations and tests against a pgvector service, and
+builds the image. Configuration is entirely via `SYNAPTIX_*` environment variables (see
 `app/core/settings.py`). The original prototype lives in `legacy/` for reference only.
