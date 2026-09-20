@@ -89,6 +89,8 @@ used, so results stay auditable.
 ```sh
 make test                 # unit tests + DB-backed retrieval tests (skipped if Postgres is down)
 make lint                 # ruff
+uv run python -m eval.run            # retrieval metrics on eval/golden.jsonl (hit@k, MRR, terms)
+uv run python -m eval.run --answers  # also generate answers and grade faithfulness/correctness
 uv sync --extra local     # adds sentence-transformers for local embeddings / reranking
 ```
 

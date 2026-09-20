@@ -1,0 +1,8 @@
+{"document": "1-s2.0-S2405535216300043-main.pdf", "question": "Which optimization methods does the paper compare for ship weather routing?", "pages": [1, 13, 14], "terms": ["Dijkstra", "dynamic programming", "isochrone", "genetic"]}
+{"document": "1-s2.0-S2405535216300043-main.pdf", "question": "What are the drawbacks of Dijkstra's algorithm for weather routing?", "pages": [8, 9, 13, 14], "terms": ["computation time", "smoothness"]}
+{"document": "1-s2.0-S2405535216300043-main.pdf", "question": "How does the original isochrone method work?", "pages": [6], "terms": ["isochrone"]}
+{"document": "1-s2.0-S2405535216300043-main.pdf", "question": "What is the difference between the modified and the 3D modified isochrone method?", "pages": [7, 8], "terms": ["isochrone"]}
+{"document": "1-s2.0-S2405535216300043-main.pdf", "question": "Which objectives does the multi-objective genetic algorithm optimise?", "pages": [10, 11], "terms": ["genetic"]}
+{"document": "1-s2.0-S2405535216300043-main.pdf", "question": "What is the DIRECT method and what is it used for?", "pages": [12], "terms": ["DIRECT"]}
+{"document": "1-s2.0-S2405535216300043-main.pdf", "question": "What does the paper conclude about choosing a routing algorithm?", "pages": [13, 14], "terms": ["requirements"]}
+{"document": "1-s2.0-S2405535216300043-main.pdf", "question": "Who are the authors and where are they affiliated?", "pages": [1], "terms": ["Fraunhofer"]}
