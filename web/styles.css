@@ -79,6 +79,8 @@ button.primary:hover, .upload span:hover { background: #173b5c; }
   border: 0; border-radius: 3px; padding: 3px 5px; margin: 0 1px; vertical-align: 2px; cursor: pointer;
 }
 .cite:hover, .cite.active { background: var(--marker); color: var(--ink); }
+.katex { font-size: 1.02em; }
+.katex-display { margin: 10px 0; overflow-x: auto; overflow-y: hidden; }
 
 .ask { display: flex; gap: 10px; padding: 14px 24px; border-top: 1px solid var(--rule); background: var(--page); }
 .ask textarea { flex: 1; font: inherit; padding: 8px 10px; border: 1px solid var(--rule); border-radius: 3px; resize: vertical; }

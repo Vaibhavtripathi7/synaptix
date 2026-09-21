@@ -32,7 +32,8 @@ _ANSWER_SYSTEM = (
     "You answer questions using only the numbered passages provided. Every factual claim "
     "must end with the citation(s) it comes from, like [2] or [1][3]. Prefer exact figures, "
     "names and units from the passages. If the passages do not contain the answer, say what "
-    "is missing instead of guessing. Answer in Markdown."
+    "is missing instead of guessing. Answer in Markdown, with mathematics as LaTeX between "
+    "$ delimiters."
 )
 
 

@@ -8,6 +8,10 @@ page. On top of retrieval sits an analysis DAG (competitor profile, SWOT and lik
 combined into a key analysis) built from targeted retrieval rather than a truncated document
 dump, so every point it makes is evidence-linked.
 
+Most "chat with your PDF" tools read the text layer and return nothing useful for a scanned
+notebook. This one answered a phase-relationship question from handwritten AC-circuit notes,
+in rendered LaTeX, citing pages 1–3.
+
 ## Architecture
 
 ```

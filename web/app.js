@@ -327,7 +327,30 @@ $("tabs").onclick = (e) => {
   document.querySelectorAll(".tabs button").forEach((b) => b.classList.toggle("active", b === e.target));
   document.querySelectorAll(".tab").forEach((s) => s.classList.toggle("active", s.id === `tab-${tab}`));
 };
-function renderMarkdown(md) { return marked.parse(String(md ?? "")); }
+// Markdown eats maths (`V_m \sin` turns into italics), so maths spans are lifted out before
+// marked runs and rendered back in with KaTeX afterwards.
+const MATH_RE = [
+  [/\$\$([\s\S]+?)\$\$/g, true],
+  [/\\\[([\s\S]+?)\\\]/g, true],
+  [/\\\(([\s\S]+?)\\\)/g, false],
+  [/\$(?!\s)([^\n$]+?)(?<!\s)\$/g, false],
+];
+function renderMarkdown(md) {
+  const spans = [];
+  let src = String(md ?? "");
+  for (const [re, display] of MATH_RE) {
+    src = src.replace(re, (_, tex) => `MATHSPAN${spans.push({ tex, display }) - 1}ENDSPAN`);
+  }
+  return marked.parse(src).replace(/MATHSPAN(\d+)ENDSPAN/g, (whole, i) => {
+    const span = spans[i];
+    if (!span) return whole;
+    try {
+      return katex.renderToString(span.tex, { displayMode: span.display, throwOnError: false });
+    } catch {
+      return esc(span.tex);
+    }
+  });
+}
 
 function esc(s) { return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
 
