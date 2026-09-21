@@ -79,6 +79,11 @@ button.primary:hover, .upload span:hover { background: #173b5c; }
   border: 0; border-radius: 3px; padding: 3px 5px; margin: 0 1px; vertical-align: 2px; cursor: pointer;
 }
 .cite:hover, .cite.active { background: var(--marker); color: var(--ink); }
+/* figures the answer cites, shown with it */
+.figures { display: flex; flex-wrap: wrap; gap: 12px; margin: 14px 0 4px; }
+.figures figure { margin: 0; max-width: 240px; }
+.figures img { display: block; width: 100%; border: 1px solid var(--rule); background: var(--page); border-radius: 2px; }
+.figures figcaption { font: 12px var(--sans); color: var(--ink-2); margin-top: 4px; }
 .katex { font-size: 1.02em; }
 .katex-display { margin: 10px 0; overflow-x: auto; overflow-y: hidden; }
 

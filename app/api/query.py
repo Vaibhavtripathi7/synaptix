@@ -13,7 +13,7 @@ from app.api.deps import (
     SessionDep,
 )
 from app.api.documents import get_or_404
-from app.db.models import DocStatus, Document, ElementKind
+from app.db.models import Chunk, DocStatus, Document, Element, ElementKind
 from app.rag.graph import build_graph
 from app.rag.summarize import summarize_document
 from app.retrieval.context import Passage
@@ -38,6 +38,7 @@ class PassageOut(BaseModel):
     kind: ElementKind
     text: str
     score: float
+    images: list[str] = []  # figure URLs, so a client can show what the answer cites
 
     @classmethod
     def from_passage(cls, p: Passage) -> "PassageOut":
@@ -63,6 +64,30 @@ async def _searchable(session: AsyncSession, requested: list[uuid.UUID] | None) 
     return ids
 
 
+async def _attach_images(session: AsyncSession, passages: list[PassageOut]) -> None:
+    """Fills `images` on figure passages: two queries for the whole result set, not per passage."""
+    wanted = {c for p in passages if p.kind is ElementKind.figure for c in p.chunk_ids}
+    if not wanted:
+        return
+    element_ids = await session.execute(
+        select(Chunk.id, Chunk.element_ids).where(Chunk.id.in_(wanted))
+    )
+    by_chunk = dict(element_ids.all())
+    rows = await session.execute(
+        select(Element.id, Element.document_id, Element.meta["image_key"].astext)
+        .where(Element.id.in_({e for ids in by_chunk.values() for e in ids}))
+        .where(Element.meta.has_key("image_key"))
+    )
+    keys = {eid: (doc, key) for eid, doc, key in rows.all()}
+    for p in passages:
+        p.images = [
+            f"/api/v1/documents/{keys[e][0]}/figures/{keys[e][1].rsplit('/', 1)[-1]}"
+            for c in p.chunk_ids
+            for e in by_chunk.get(c, [])
+            if e in keys
+        ]
+
+
 @router.post("/query", response_model=QueryResponse)
 async def query(
     body: QueryRequest,
@@ -78,6 +103,7 @@ async def query(
     if not retrieval.passages:
         raise HTTPException(404, "no indexed content matched; is the document ready?")
     passages = [PassageOut.from_passage(p) for p in retrieval.passages]
+    await _attach_images(session, passages)
     if not body.stream:
         answer = await answerer.answer(body.question, retrieval.passages)
         return QueryResponse(

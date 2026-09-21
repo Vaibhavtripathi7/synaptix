@@ -153,7 +153,16 @@ async function* sse(response) {
 }
 
 function renderAnswer(el, markdown, passages, meta) {
-  el.innerHTML = withCites(renderMarkdown(markdown), passages) + (meta ? `<div class="meta">${meta}</div>` : "");
+  const cited = new Set([...markdown.matchAll(/\[(\d{1,2})\]/g)].map((m) => +m[1]));
+  const figures = passages
+    .filter((p) => cited.has(p.n) && p.images?.length)
+    .map((p) => `<figure><img src="${p.images[0]}" alt="Figure cited as ${p.n}">
+      <figcaption><button class="cite" data-n="${p.n}">${p.n}</button> page ${p.page_start}</figcaption></figure>`)
+    .join("");
+  el.innerHTML =
+    withCites(renderMarkdown(markdown), passages) +
+    (figures ? `<div class="figures">${figures}</div>` : "") +
+    (meta ? `<div class="meta">${meta}</div>` : "");
 }
 
 // [n] markers → buttons that reveal the evidence; `passages` scopes which numbers are valid.

@@ -87,6 +87,20 @@ async def get_file(
     )
 
 
+@router.get("/{document_id}/figures/{name}")
+async def get_figure(
+    document_id: uuid.UUID,
+    name: str,
+    session: SessionDep,
+    storage: StorageDep,
+) -> FileResponse:
+    await get_or_404(session, document_id)
+    path = storage.path(f"{document_id}/figures/{name}")
+    if not path.is_file():
+        raise HTTPException(404, "figure not found")
+    return FileResponse(path, media_type="image/png")
+
+
 @router.get("/{document_id}/chunks/{chunk_id}", response_model=list[ElementOut])
 async def chunk_elements(
     document_id: uuid.UUID, chunk_id: uuid.UUID, session: SessionDep
