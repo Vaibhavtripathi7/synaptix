@@ -73,3 +73,61 @@ def test_chunks_respect_budget_and_isolate_tables_and_figures():
     # overlap: the tail of one prose chunk reappears at the head of the next
     tail = text_chunks[0].content.split()[-3:]
     assert " ".join(tail) in text_chunks[1].content
+
+
+async def test_scanned_pages_are_transcribed_in_one_batched_call():
+    """Batching is the cost lever: N scanned pages must cost one request, and each page must
+    receive its own transcription even if the model returns them out of order."""
+    from app.ingest.enrich import enrich
+    from app.ingest.parse import ParsedDoc
+
+    class FakeLLM:
+        calls: list[list] = []
+
+        async def generate_structured(self, content, schema, **kw):
+            FakeLLM.calls.append(content)
+            labels = [
+                int(p.split()[1].rstrip(":"))
+                for p in content
+                if isinstance(p, str) and p.startswith("Page ")
+            ]
+            return schema(
+                pages=[{"page_index": n, "markdown": f"text {n}"} for n in reversed(labels)]
+            )
+
+        @staticmethod
+        def image(png: bytes):
+            return {"image": png}
+
+    scans = [Block(p, "scan", ElementKind.text, "", None, b"png") for p in range(1, 6)]
+    await enrich(ParsedDoc(title=None, page_count=5, blocks=scans), FakeLLM(), batch_pages=5)
+
+    assert len(FakeLLM.calls) == 1, "five scanned pages must cost one vision request"
+    assert [b.content for b in scans] == [f"text {i}" for i in range(5)]
+
+
+async def test_a_failed_batch_degrades_only_its_own_pages():
+    from app.ingest.enrich import enrich
+    from app.ingest.parse import ParsedDoc
+
+    class FlakyLLM:
+        def __init__(self):
+            self.n = 0
+
+        async def generate_structured(self, content, schema, **kw):
+            self.n += 1
+            if self.n == 1:
+                raise RuntimeError("503 overloaded")
+            return schema(pages=[{"page_index": 0, "markdown": "ok"}])
+
+        @staticmethod
+        def image(png: bytes):
+            return {"image": png}
+
+    scans = [Block(p, "scan", ElementKind.text, "", None, b"png") for p in range(1, 3)]
+    degraded = await enrich(
+        ParsedDoc(title=None, page_count=2, blocks=scans), FlakyLLM(), batch_pages=1
+    )
+
+    assert degraded == 1
+    assert "503" in scans[0].meta["enrich_error"] and scans[1].content == "ok"

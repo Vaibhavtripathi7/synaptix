@@ -83,6 +83,14 @@ retrieves the same facets from two documents. A stage that finds nothing returns
 instead of inventing content. Runs are rows in `analysis_runs` storing the passages each stage
 used, so results stay auditable.
 
+### Cost
+
+Vision OCR is the dominant cost of ingesting scanned material, so scanned pages are transcribed
+in batches of `SYNAPTIX_OCR_BATCH_PAGES` (default 6) images per request, each labelled so the
+model's indexed replies cannot misalign. On a 33-page handwritten deck that is 7 requests instead
+of 33 — the difference between "fits in the free tier" and "does not". Pages that already have a
+text layer never reach a vision model at all.
+
 ### Resilience
 
 `app/llm/client.py` retries transport errors in place and fails over to the next model in

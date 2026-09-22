@@ -53,7 +53,7 @@ async def _run(session, doc: Document, storage, llm, embedder, settings: Setting
     doc.title, doc.page_count = parsed.title or doc.filename, parsed.page_count
 
     await stage(DocStatus.enriching)
-    degraded = await enrich(parsed, llm)
+    degraded = await enrich(parsed, llm, settings.ocr_batch_pages)
 
     sections = build_sections(parsed.blocks, parsed.title)
     drafts = chunk_sections(

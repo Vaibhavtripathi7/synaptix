@@ -42,6 +42,9 @@ class Settings(BaseSettings):
     reranker: Literal["llm", "local", "none"] = "llm"
     local_reranker_model: str = "BAAI/bge-reranker-v2-m3"
 
+    # Ingestion
+    ocr_batch_pages: int = 6  # scanned pages per vision request; the main cost lever
+
     # Chunking
     chunk_tokens: int = 400
     chunk_overlap_tokens: int = 60
