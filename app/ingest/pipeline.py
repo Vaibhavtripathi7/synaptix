@@ -35,6 +35,13 @@ async def ingest_document(
             return
         try:
             await _run(session, doc, storage, llm, embedder, settings)
+        except asyncio.CancelledError:
+            # Worker shutdown or restart. Record it before unwinding, shielded so the write
+            # itself is not cancelled; a SIGKILL skips this and the startup reaper covers it.
+            log.warning("ingest.cancelled", document_id=str(document_id))
+            doc.status, doc.error = DocStatus.failed, "ingestion was interrupted; upload again"
+            await asyncio.shield(session.commit())
+            raise
         except Exception as exc:
             log.exception("ingest.failed", document_id=str(document_id))
             doc.status, doc.error = DocStatus.failed, f"{type(exc).__name__}: {exc}"[:2000]

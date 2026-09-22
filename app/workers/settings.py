@@ -2,13 +2,17 @@
 
 import uuid
 from collections.abc import Awaitable, Callable
+from datetime import UTC, datetime, timedelta
 
 import structlog
 from arq.connections import RedisSettings
+from sqlalchemy import update
 
 from app.analysis.pipeline import run_analysis
 from app.core.logging import configure_logging
 from app.core.settings import get_settings
+from app.db.models import DocStatus, Document
+from app.db.session import SessionLocal
 from app.ingest.pipeline import ingest_document
 from app.rag.answer import build_answerer
 from app.storage import LocalStorage
@@ -16,6 +20,25 @@ from app.storage import LocalStorage
 log = structlog.get_logger()
 
 JOB_TIMEOUT = 1800
+
+# States a job passes through. A document sitting in one of these with nothing working on it was
+# abandoned by a worker that died mid-ingest.
+_TRANSIENT = (DocStatus.parsing, DocStatus.enriching, DocStatus.embedding)
+
+
+async def reap_stranded() -> None:
+    """Fail documents abandoned mid-ingest. Only those untouched for longer than a job could
+    run are considered stranded, so this never clobbers a document another worker is handling."""
+    cutoff = datetime.now(UTC) - timedelta(seconds=JOB_TIMEOUT)
+    async with SessionLocal() as session:
+        result = await session.execute(
+            update(Document)
+            .where(Document.status.in_(_TRANSIENT), Document.updated_at < cutoff)
+            .values(status=DocStatus.failed, error="ingestion was interrupted; upload again")
+        )
+        await session.commit()
+    if result.rowcount:
+        log.warning("ingest.reaped_stranded", documents=result.rowcount)
 
 
 async def startup(ctx: dict) -> None:
@@ -26,6 +49,7 @@ async def startup(ctx: dict) -> None:
         storage=LocalStorage(settings.storage_dir),
         answerer=build_answerer(settings),
     )
+    await reap_stranded()
 
 
 async def _run_job(name: str, work: Callable[[], Awaitable[None]]) -> None:
