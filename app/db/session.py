@@ -6,7 +6,14 @@ from app.core.settings import get_settings
 
 _settings = get_settings()
 
-engine = create_async_engine(_settings.database_url, pool_pre_ping=True)
+# asyncpg caches prepared statements per connection. A migration applied while workers run
+# invalidates them, and every pooled connection then raises InvalidCachedStatementError until
+# it is recycled; the cache is also incompatible with pgbouncer in transaction mode. Off.
+engine = create_async_engine(
+    _settings.database_url,
+    pool_pre_ping=True,
+    connect_args={"prepared_statement_cache_size": 0},
+)
 SessionLocal = async_sessionmaker(engine, expire_on_commit=False)
 
 
