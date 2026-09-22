@@ -117,4 +117,5 @@ def upgrade() -> None:
 def downgrade() -> None:
     for table in ("chunks", "sections", "elements", "documents"):
         op.drop_table(table)
-    op.execute("DROP TYPE element_kind; DROP TYPE doc_status")
+    for enum in ("element_kind", "doc_status"):
+        op.execute(f"DROP TYPE {enum}")

@@ -39,4 +39,5 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     op.drop_table("analysis_runs")
-    op.execute("DROP TYPE analysis_kind; DROP TYPE run_status")
+    for enum in ("analysis_kind", "run_status"):
+        op.execute(f"DROP TYPE {enum}")
