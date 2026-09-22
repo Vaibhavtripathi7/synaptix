@@ -1,6 +1,8 @@
 """Async wrapper over google-genai: one place for auth, retries, concurrency, structured output."""
 
 import asyncio
+import json
+import re
 from collections.abc import AsyncIterator, Awaitable, Callable
 from functools import partial
 from typing import TypeVar
@@ -17,6 +19,16 @@ Content = str | list[str | types.Part]
 log = structlog.get_logger()
 
 _FAILOVER_CODES = {429, 503}  # quota exhausted / model overloaded: try the next model
+
+
+def _rate_limit_wait(exc: errors.APIError) -> float | None:
+    """Seconds to wait when a 429 is a per-minute limit (transient, worth waiting out).
+    None for daily quotas and anything else, which should fail over instead."""
+    detail = json.dumps(exc.details, default=str) if exc.details else ""
+    if "PerMinute" not in detail:
+        return None
+    m = re.search(r'"retryDelay": "(\d+)s"', detail)
+    return float(m.group(1)) + 1 if m else 30.0
 
 
 class Gemini:
@@ -72,15 +84,25 @@ class Gemini:
         )
 
     async def _call(self, chain: list[str], call: Callable[[str], Awaitable[T]]) -> T:
-        """Runs `call(model)` down the chain: a quota error or an overloaded model fails over to
-        the next entry; anything else, or the last entry failing, raises."""
+        """Runs `call(model)` down the chain. A per-minute rate limit is waited out once on the
+        same model (backpressure: the caller holds the concurrency slot while it waits); a daily
+        quota or an overloaded model fails over to the next entry."""
         for i, model in enumerate(chain):
-            try:
-                return await call(model)
-            except errors.APIError as exc:
-                if exc.code not in _FAILOVER_CODES or i == len(chain) - 1:
-                    raise
-                log.warning("llm.failover", model=model, code=exc.code, next=chain[i + 1])
+            waited = False
+            while True:
+                try:
+                    return await call(model)
+                except errors.APIError as exc:
+                    wait = _rate_limit_wait(exc) if exc.code == 429 else None
+                    if wait and not waited:
+                        log.info("llm.rate_limited", model=model, wait_s=wait)
+                        await asyncio.sleep(wait)
+                        waited = True
+                        continue
+                    if exc.code not in _FAILOVER_CODES or i == len(chain) - 1:
+                        raise
+                    log.warning("llm.failover", model=model, code=exc.code, next=chain[i + 1])
+                    break
         raise AssertionError("unreachable")
 
     async def _generate(self, content: Content, config, strong: bool):

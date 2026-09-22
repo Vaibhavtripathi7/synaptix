@@ -93,9 +93,10 @@ text layer never reach a vision model at all.
 
 ### Resilience
 
-`app/llm/client.py` retries transport errors in place and fails over to the next model in
-`SYNAPTIX_LLM_FALLBACK_MODELS` on quota 429s or 503 overloads. Enrichment degrades per element
-(a figure that could not be captioned keeps its caption text) instead of failing the document. Each request carries an
+`app/llm/client.py` retries transport errors in place, waits out per-minute rate limits using the
+API's own `retryDelay`, and fails over to the next model in `SYNAPTIX_LLM_FALLBACK_MODELS` on
+daily-quota 429s or 503 overloads. Enrichment degrades per element (a figure that could not be
+captioned keeps its caption text) instead of failing the document. Each request carries an
 `x-request-id` that appears on every log line and is echoed to the client.
 
 ## Develop
