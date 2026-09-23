@@ -100,6 +100,10 @@ select { font: inherit; padding: 4px 6px; border: 1px solid var(--rule); border-
 .run h3 { margin-top: 16px; }
 .run h4 { font: 500 13px var(--sans); color: var(--ink-2); margin: 12px 0 4px; }
 .run li { margin-bottom: 8px; }
+.run .symbols { display: block; font: 12px var(--sans); color: var(--ink-2); }
+.run .question { font-weight: 500; }
+.run .answer { color: var(--ink-2); margin-top: 2px; }
+.run .tag { font: 11px var(--sans); color: var(--pen); background: var(--pen-soft); border-radius: 3px; padding: 2px 5px; margin-left: 6px; }
 .graph { flex: 1; min-height: 0; }
 #graph-stats { font-size: 13px; color: var(--ink-2); }
 

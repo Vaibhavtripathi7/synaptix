@@ -44,7 +44,7 @@ class ElementKind(StrEnum):
 
 
 class AnalysisKind(StrEnum):
-    competitor = "competitor"  # profile, SWOT, strategy → key analysis, over one document
+    study_guide = "study_guide"  # outline → practice questions, over one document
     comparison = "comparison"  # two documents compared
 
 

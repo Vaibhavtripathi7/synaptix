@@ -9,36 +9,42 @@ class Point(BaseModel):
     evidence: list[int] = Field(default_factory=list, description="passage numbers [n] used")
 
 
-class CompetitorProfile(BaseModel):
-    name: str = Field(description="the company the document is about")
-    basic_information: list[Point] = Field(description="location, industry, history, size")
-    products_and_services: list[Point]
-    market_presence: list[Point] = Field(description="audience, share, reach, marketing")
-    sales: list[Point] = Field(description="revenue, pricing, channels, customers")
+class Concept(BaseModel):
+    name: str
+    explanation: str = Field(description="two or three sentences, in the document's own terms")
+    evidence: list[int] = Field(default_factory=list)
 
 
-class Swot(BaseModel):
-    strengths: list[Point]
-    weaknesses: list[Point]
-    opportunities: list[Point]
-    threats: list[Point]
+class Formula(BaseModel):
+    name: str
+    latex: str = Field(description="the expression as LaTeX, without surrounding $ delimiters")
+    symbols: str = Field(description="what each symbol means, and the units where given")
+    evidence: list[int] = Field(default_factory=list)
 
 
-class Strategy(BaseModel):
-    likely_strategy: list[Point] = Field(description="the actions the company is likely to take")
-    impact: list[Point] = Field(description="threats and opportunities this creates for others")
-    counter_strategies: list[Point]
+class Question(BaseModel):
+    question: str
+    answer: str = Field(description="the worked answer, with the reasoning stated briefly")
+    difficulty: str = Field(description="recall | application | analysis")
+    evidence: list[int] = Field(default_factory=list)
 
 
-class KeyAnalysis(BaseModel):
-    executive_summary: str
-    advantages: list[Point]
-    disadvantages: list[Point]
-    recommendations: list[Point]
+class StudyOutline(BaseModel):
+    overview: str = Field(description="what this material covers, in three or four sentences")
+    key_concepts: list[Concept]
+    formulas: list[Formula]
+    worked_examples: list[Point]
+    pitfalls: list[Point] = Field(description="conditions, assumptions and common mistakes")
 
 
-class Comparison(BaseModel):
-    differences: list[Point]
-    similarities: list[Point]
-    first_can_learn: list[Point] = Field(description="what the first can learn from the second")
-    second_can_learn: list[Point] = Field(description="what the second can learn from the first")
+class PracticeSet(BaseModel):
+    questions: list[Question]
+
+
+class PaperComparison(BaseModel):
+    problem: list[Point] = Field(description="the problem each paper addresses")
+    methods: list[Point]
+    data_and_setup: list[Point] = Field(description="datasets, benchmarks, experimental setup")
+    results: list[Point]
+    strengths_and_limitations: list[Point]
+    takeaway: str = Field(description="how the two relate, and when to prefer each")

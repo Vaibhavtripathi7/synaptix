@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.analysis.schemas import Comparison, CompetitorProfile, KeyAnalysis, Strategy, Swot
+from app.analysis.schemas import PaperComparison, PracticeSet, StudyOutline
 from app.rag.answer import Answerer
 from app.retrieval.context import Passage, build_context, render
 from app.retrieval.hybrid import Hit, hybrid_search
@@ -22,7 +22,8 @@ _CONTEXT_TOKENS = 9000
 _CITE_RULE = (
     " Work only from the numbered passages and list the passage numbers you used in each "
     "`evidence`. If the passages do not cover a category, return an empty list for it rather "
-    "than inventing content."
+    "than inventing content. Write every symbol, subscript and expression as LaTeX between "
+    "$ delimiters — $B_L$, not B_L — so it renders."
 )
 
 
@@ -34,69 +35,51 @@ class Agent:
     schema: type[BaseModel]
 
 
-PROFILE = Agent(
-    "profile",
-    "You are a competitor profiling analyst. Build a profile of the company the passages "
-    "describe: basic information, products and services, market presence and sales. Keep "
-    "concrete names, figures and dates." + _CITE_RULE,
+OUTLINE = Agent(
+    "outline",
+    "You are an experienced tutor building revision material from a student's source documents "
+    "(lecture notes, slides or a paper). Be exhaustive about the passages you are given: "
+    "capture every concept a student must understand, every formula that appears (with each "
+    "symbol and its units defined), every worked example, and the conditions, assumptions and "
+    "mistakes that trip people up. Use the document's own notation and numbers, and do not "
+    "summarise several formulas into one." + _CITE_RULE,
     (
-        "company overview, history, headquarters and industry",
-        "products, services, features and pricing",
-        "customers, target market, market share and geographic reach",
-        "revenue, sales channels and financial results",
+        "definitions, key concepts and terminology",
+        "equations, formulas and mathematical relationships",
+        "worked examples, solved problems and numerical calculations",
+        "derivations, proofs and explanations of why a method works",
+        "assumptions, conditions, special cases and common mistakes",
     ),
-    CompetitorProfile,
+    StudyOutline,
 )
 
-SWOT = Agent(
-    "swot",
-    "You are a strategy analyst. Perform a SWOT analysis of the company the passages describe: "
-    "strengths, weaknesses, opportunities and threats, each grounded in the passages." + _CITE_RULE,
+PRACTICE = Agent(
+    "practice",
+    "You are setting practice questions on the material below. Using the outline already "
+    "extracted and the passages, write at least eight questions spread across recall, "
+    "application and analysis, covering different parts of the outline rather than one topic, "
+    "and answer each one. Base every question on material actually present; where the document "
+    "gives numbers, use them." + _CITE_RULE,
     (
-        "competitive advantages, differentiators and capabilities",
-        "risks, weaknesses, challenges and limitations",
-        "growth plans, new markets and opportunities",
-        "competitors, regulation and market threats",
+        "worked examples, solved problems and numerical calculations",
+        "equations, formulas and mathematical relationships",
+        "definitions, key concepts and terminology",
     ),
-    Swot,
-)
-
-STRATEGY = Agent(
-    "strategy",
-    "You are a competitive strategy manager. From the passages, describe the company's likely "
-    "future strategy as specific actions, analyse its impact on other players in the market, "
-    "and propose concrete counter-strategies." + _CITE_RULE,
-    (
-        "strategy, plans, roadmap and future direction",
-        "investments, partnerships and acquisitions",
-        "marketing, pricing and go-to-market approach",
-    ),
-    Strategy,
-)
-
-KEY_ANALYSIS = Agent(
-    "key_analysis",
-    "You are a competitive analyst. Combine the profile, SWOT analysis and strategy already "
-    "produced, together with the passages, into a key analysis: an executive summary, the "
-    "company's main competitive advantages and disadvantages, and actionable recommendations."
-    + _CITE_RULE,
-    (
-        "key results, metrics and performance figures",
-        "competitive position and differentiation",
-    ),
-    KeyAnalysis,
+    PracticeSet,
 )
 
 COMPARISON_SYSTEM = (
-    "Compare the two documents below. Identify their key differences and similarities in "
-    "content and approach, then what the first company can learn from the second and what the "
-    "second can learn from the first. Be specific and actionable." + _CITE_RULE
+    "Compare these two research documents for someone deciding what to read, cite or build on. "
+    "Cover the problem each addresses, their methods, their data and experimental setup, their "
+    "results, and their strengths and limitations; finish with how they relate and when to "
+    "prefer each. Be specific: keep method names, dataset names and reported numbers." + _CITE_RULE
 )
 COMPARISON_FACETS = (
-    "company overview, products and services",
-    "strategy, plans and market approach",
-    "results, metrics and financial performance",
-    "strengths, weaknesses and risks",
+    "the problem being addressed, motivation and contributions",
+    "method, model architecture and algorithm",
+    "datasets, benchmarks, experimental setup and metrics",
+    "results, performance numbers and comparisons",
+    "limitations, assumptions and future work",
 )
 
 
@@ -151,12 +134,12 @@ async def run_agent(
 
 async def compare(
     answerer: Answerer, session: AsyncSession, first: uuid.UUID, second: uuid.UUID
-) -> tuple[Comparison, list[Passage]]:
+) -> tuple[PaperComparison, list[Passage]]:
     a = await gather_context(answerer, session, COMPARISON_FACETS, [first])
     b = await gather_context(answerer, session, COMPARISON_FACETS, [second], start_at=len(a) + 1)
     prompt = f"First document passages:\n\n{render(a)}\n\nSecond document passages:\n\n{render(b)}"
     result = await answerer.llm.generate_structured(
-        prompt, Comparison, system=COMPARISON_SYSTEM, strong=True, think=True
+        prompt, PaperComparison, system=COMPARISON_SYSTEM, strong=True, think=True
     )
     return result, a + b
 

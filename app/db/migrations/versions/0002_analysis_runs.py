@@ -17,7 +17,7 @@ def upgrade() -> None:
         "analysis_runs",
         sa.Column("id", pg.UUID(as_uuid=True), primary_key=True),
         sa.Column(
-            "kind", pg.ENUM("competitor", "comparison", name="analysis_kind"), nullable=False
+            "kind", pg.ENUM("study_guide", "comparison", name="analysis_kind"), nullable=False
         ),
         sa.Column("document_ids", pg.ARRAY(pg.UUID(as_uuid=True)), nullable=False),
         sa.Column(

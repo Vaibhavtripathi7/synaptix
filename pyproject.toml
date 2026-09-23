@@ -1,7 +1,7 @@
 [project]
 name = "synaptix"
 version = "0.1.0"
-description = "Production RAG over PDFs: structured ingestion, hybrid retrieval with reranking, cited answers, and competitor-analysis agents."
+description = "Study and research workbench over PDFs: structured ingestion with vision OCR, hybrid retrieval with reranking, cited answers, study guides and paper comparisons."
 requires-python = ">=3.12,<3.13"
 dependencies = [
     "fastapi>=0.115",

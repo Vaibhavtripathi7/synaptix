@@ -1,8 +1,6 @@
 """Executes an AnalysisRun.
 
-competitor:  profile ─┐
-             swot    ─┼─►  key_analysis(profile, swot, strategy, facets)
-             strategy ┘
+study_guide: outline(facets)  →  practice(outline, facets)
 comparison:  facets(doc A) + facets(doc B)  →  comparison
 
 Results are stored as JSON with the passages each stage used, so a client can resolve every
@@ -51,8 +49,8 @@ async def run_analysis(run_id: uuid.UUID, answerer: Answerer) -> None:
         run.status = RunStatus.running
         await session.commit()
         try:
-            if run.kind is AnalysisKind.competitor:
-                run.result = await _competitor(session, answerer, run.document_ids)
+            if run.kind is AnalysisKind.study_guide:
+                run.result = await _study_guide(session, answerer, run.document_ids)
             else:
                 cmp, passages = await agents.compare(
                     session=session,
@@ -69,15 +67,14 @@ async def run_analysis(run_id: uuid.UUID, answerer: Answerer) -> None:
         await session.commit()
 
 
-async def _competitor(session, answerer: Answerer, document_ids: list[uuid.UUID]) -> dict:
-    """Three independent stages, then a fourth that reads all three. The three run one after
-    another, not concurrently: they share the run's database session."""
-    result, outputs = {}, {}
-    for agent in (agents.PROFILE, agents.SWOT, agents.STRATEGY):
-        output, passages = await agents.run_agent(agent, answerer, session, document_ids)
-        result[agent.name], outputs[agent.name] = _stage(output, passages), output
-    key, passages = await agents.run_agent(
-        agents.KEY_ANALYSIS, answerer, session, document_ids, inputs=outputs
+async def _study_guide(session, answerer: Answerer, document_ids: list[uuid.UUID]) -> dict:
+    """Two stages: extract the material, then set questions grounded in what was extracted."""
+    outline, o_pass = await agents.run_agent(agents.OUTLINE, answerer, session, document_ids)
+    practice, p_pass = await agents.run_agent(
+        agents.PRACTICE,
+        answerer,
+        session,
+        document_ids,
+        inputs={"Outline already extracted": outline},
     )
-    result[agents.KEY_ANALYSIS.name] = _stage(key, passages)
-    return result
+    return {"outline": _stage(outline, o_pass), "practice": _stage(practice, p_pass)}

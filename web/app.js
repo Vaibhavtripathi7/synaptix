@@ -251,18 +251,27 @@ async function summarise() {
 }
 
 // ---------- analysis ----------
-const STAGE_TITLES = {
-  profile: "Competitor profile", swot: "SWOT analysis", strategy: "Likely strategy",
-  key_analysis: "Key analysis", comparison: "Comparison",
+const STAGE_TITLES = { outline: "Study outline", practice: "Practice questions", comparison: "Comparison" };
+const FIELD_TITLES = {
+  key_concepts: "Key concepts", formulas: "Formulas", worked_examples: "Worked examples",
+  pitfalls: "Watch out for", questions: "Questions", data_and_setup: "Data and setup",
+  strengths_and_limitations: "Strengths and limitations",
 };
-const FIELD_TITLES = { swot: "SWOT", first_can_learn: "What the first can learn", second_can_learn: "What the second can learn" };
+// Each schema field renders to its own shape; anything unlisted falls back to `.text`.
+const ITEM = {
+  key_concepts: (c) => `<strong>${esc(c.name)}</strong> — ${inline(c.explanation)}`,
+  formulas: (f) => `<strong>${esc(f.name)}</strong>${renderMarkdown(`$$${f.latex}$$`)}
+    <span class="symbols">${inline(f.symbols)}</span>`,
+  questions: (q) => `<div class="question">${inline(q.question)}
+    <span class="tag">${esc(q.difficulty)}</span></div><div class="answer">${inline(q.answer)}</div>`,
+};
 const inline = (md) => renderMarkdown(md).replace(/^<p>/, "").replace(/<\/p>\s*$/, "");
 
 async function loadAnalyses() {
   if (!state.doc) return;
   const runs = await api(`/analyses?document_id=${state.doc.id}`);
   const box = $("analysis");
-  if (!runs.length) { box.innerHTML = `<p class="empty">No analyses yet for this document.</p>`; return; }
+  if (!runs.length) { box.innerHTML = `<p class="empty">No study guides yet for this document.</p>`; return; }
   box.replaceChildren(...runs.map(renderRun));
   if (runs.some((r) => ["queued", "running"].includes(r.status))) setTimeout(loadAnalyses, 5000);
 }
@@ -271,7 +280,7 @@ function renderRun(run) {
   const div = document.createElement("div");
   div.className = "run";
   const when = new Date(run.created_at).toLocaleString();
-  const kind = run.kind === "competitor" ? "Competitor analysis" : "Comparison";
+  const kind = run.kind === "study_guide" ? "Study guide" : "Comparison";
   if (run.status !== "done") {
     div.innerHTML = `<div class="head">${kind}, ${when}</div><p class="empty">${
       run.status === "failed" ? `Failed: ${esc(run.error)}` : "Working through the document…"
@@ -285,7 +294,7 @@ function renderRun(run) {
     for (const [field, value] of Object.entries(output)) {
       if (typeof value === "string") { html += inline(value); continue; }
       if (!value.length) continue;
-      const item = (x) => inline(x.text ?? String(x));
+      const item = ITEM[field] || ((x) => inline(x.text ?? String(x)));
       html += `<h4>${FIELD_TITLES[field] || field.replaceAll("_", " ")}</h4><ul>`;
       html += value.map((x) => `<li>${item(x)}${cites(x.evidence)}</li>`).join("");
       html += "</ul>";
@@ -299,7 +308,7 @@ function renderRun(run) {
 const cites = (ev) =>
   ev?.length ? " " + ev.map((n) => `<button class="cite" data-n="${n}">${n}</button>`).join("") : "";
 
-$("run-competitor").onclick = () => startAnalysis({ kind: "competitor", document_ids: [state.doc.id] });
+$("run-study-guide").onclick = () => startAnalysis({ kind: "study_guide", document_ids: [state.doc.id] });
 $("run-comparison").onclick = () => {
   const other = $("compare-with").value;
   if (other) startAnalysis({ kind: "comparison", document_ids: [state.doc.id, other] });
