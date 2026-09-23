@@ -9,6 +9,7 @@ passages are returned alongside the answer so a client can resolve them to page/
 import uuid
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
+from typing import Literal
 
 from pydantic import BaseModel
 from sqlalchemy import select
@@ -35,6 +36,17 @@ _ANSWER_SYSTEM = (
     "is missing instead of guessing. Answer in Markdown, with mathematics as LaTeX between "
     "$ delimiters."
 )
+
+Style = Literal["brief", "standard", "explain"]
+_STYLE: dict[Style, str] = {
+    "brief": " Answer in one or two sentences, or a single formula. No preamble, no restating "
+    "the question, no elaboration beyond what was asked.",
+    "standard": " Be direct and complete: cover the answer and the reasoning behind it without "
+    "padding.",
+    "explain": " Teach the answer to someone meeting it for the first time: define the terms "
+    "you use, work through the reasoning step by step, show intermediate steps for any "
+    "derivation, and end with the intuition for why the result holds.",
+}
 
 
 class _Queries(BaseModel):
@@ -108,13 +120,18 @@ class Answerer:
         stmt = select(Document.title).where(Document.id.in_(document_ids)).limit(20)
         return [t for t in await session.scalars(stmt) if t]
 
-    async def stream(self, question: str, passages: list[Passage]) -> AsyncIterator[str]:
+    async def stream(
+        self, question: str, passages: list[Passage], style: Style = "standard"
+    ) -> AsyncIterator[str]:
         prompt = f"Passages:\n\n{render(passages)}\n\nQuestion: {question}"
-        async for token in self.llm.stream(prompt, system=_ANSWER_SYSTEM):
+        system = _ANSWER_SYSTEM + _STYLE[style]
+        async for token in self.llm.stream(prompt, system=system):
             yield token
 
-    async def answer(self, question: str, passages: list[Passage]) -> str:
-        return "".join([t async for t in self.stream(question, passages)])
+    async def answer(
+        self, question: str, passages: list[Passage], style: Style = "standard"
+    ) -> str:
+        return "".join([t async for t in self.stream(question, passages, style)])
 
 
 def build_answerer(settings: Settings) -> Answerer:

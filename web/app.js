@@ -121,7 +121,7 @@ $("ask-form").onsubmit = async (e) => {
   try {
     const r = await call("/query", {
       method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ question, document_ids: [state.doc.id], stream: true }),
+      body: JSON.stringify({ question, document_ids: [state.doc.id], style: $("style").value, stream: true }),
     });
     if (!r.ok) throw new Error(await r.json().then((d) => d.detail).catch(() => r.statusText));
     for await (const ev of sse(r)) {

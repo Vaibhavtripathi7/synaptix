@@ -14,6 +14,7 @@ from app.api.deps import (
 )
 from app.api.documents import get_or_404
 from app.db.models import Chunk, DocStatus, Document, Element, ElementKind
+from app.rag.answer import Style
 from app.rag.graph import build_graph
 from app.rag.summarize import summarize_document
 from app.retrieval.context import Passage
@@ -24,6 +25,7 @@ router = APIRouter(tags=["query"])
 class QueryRequest(BaseModel):
     question: str = Field(min_length=3, max_length=2000)
     document_ids: list[uuid.UUID] | None = None  # None = every ready document
+    style: Style = "standard"  # how much explanation the answer should carry
     stream: bool = False
 
 
@@ -105,7 +107,7 @@ async def query(
     passages = [PassageOut.from_passage(p) for p in retrieval.passages]
     await _attach_images(session, passages)
     if not body.stream:
-        answer = await answerer.answer(body.question, retrieval.passages)
+        answer = await answerer.answer(body.question, retrieval.passages, body.style)
         return QueryResponse(
             answer=answer,
             passages=passages,
@@ -115,7 +117,7 @@ async def query(
 
     async def events() -> AsyncIterator[str]:
         yield _sse("passages", [p.model_dump(mode="json") for p in passages])
-        async for token in answerer.stream(body.question, retrieval.passages):
+        async for token in answerer.stream(body.question, retrieval.passages, body.style):
             yield _sse("token", token)
         yield _sse("done", {"queries": retrieval.queries, "candidates": retrieval.candidates})
 

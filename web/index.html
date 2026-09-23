@@ -37,7 +37,14 @@
       </div>
       <form id="ask-form" class="ask">
         <textarea id="question" rows="2" placeholder="Ask this document" required></textarea>
-        <button type="submit" id="ask-btn">Ask</button>
+        <span class="ask-controls">
+          <select id="style" aria-label="Answer style">
+            <option value="standard">Answer</option>
+            <option value="brief">Just the answer</option>
+            <option value="explain">Explain it</option>
+          </select>
+          <button type="submit" id="ask-btn">Ask</button>
+        </span>
       </form>
     </section>
 

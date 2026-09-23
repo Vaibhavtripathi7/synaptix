@@ -89,7 +89,8 @@ button.primary:hover, .upload span:hover { background: #173b5c; }
 
 .ask { display: flex; gap: 10px; padding: 14px 24px; border-top: 1px solid var(--rule); background: var(--page); }
 .ask textarea { flex: 1; font: inherit; padding: 8px 10px; border: 1px solid var(--rule); border-radius: 3px; resize: vertical; }
-.ask button { background: var(--pen); color: #fff; }
+.ask-controls { display: flex; flex-direction: column; gap: 6px; }
+.ask-controls button { background: var(--pen); color: #fff; }
 
 /* analysis */
 .analysis-actions, .graph-actions { display: flex; gap: 14px; align-items: center; padding: 14px 24px; border-bottom: 1px solid var(--rule); flex-wrap: wrap; }
