@@ -6,7 +6,7 @@ Two shapes of agent, because two shapes of question:
   are unioned into one budgeted, numbered context, so the model sees the *relevant* parts.
 * **Coverage** (`run_mapped_agent`) — for outputs that must not miss anything, like a study
   guide. Retrieval is the wrong primitive there: top-k by definition drops the tail. Instead
-  every section of the document is numbered once and mapped over in batches, and the fragments
+  every chunk of the document is numbered once and mapped over in batches, and the fragments
   are merged. Passage numbers stay global across batches, so `evidence` still resolves.
 
 Either way the output is a Pydantic model whose items cite the passages they rest on."""
@@ -18,9 +18,10 @@ from dataclasses import dataclass
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.analysis.schemas import PaperComparison, PracticeSet, StudyOutline
-from app.db.models import Document, ElementKind, Section
+from app.db.models import Chunk
 from app.ingest.chunk import count_tokens
 from app.rag.answer import Answerer
 from app.retrieval.context import Passage, build_context, render
@@ -123,27 +124,34 @@ async def gather_context(
 
 
 async def document_passages(session: AsyncSession, document_ids: list[uuid.UUID]) -> list[Passage]:
-    """The whole document as numbered passages, one per section, in reading order."""
-    rows = await session.execute(
-        select(Section, Document.title, Document.filename)
-        .join(Document, Section.document_id == Document.id)
-        .where(Section.document_id.in_(document_ids))
-        .order_by(Section.document_id, Section.order_idx)
+    """The whole document as numbered passages, in reading order.
+
+    Chunks rather than sections: a section can be the entire document (a scanned deck with no
+    detected headings is one section), and an `evidence` number that resolves to "the document"
+    is worthless. A chunk always carries its own page range and id, so every citation lands on
+    a page the reader can check."""
+    chunks = list(
+        await session.scalars(
+            select(Chunk)
+            .options(selectinload(Chunk.section), selectinload(Chunk.document))
+            .where(Chunk.document_id.in_(document_ids))
+            .order_by(Chunk.document_id, Chunk.order_idx)
+        )
     )
     return [
         Passage(
             n=i + 1,
-            chunk_ids=[],
-            document_id=s.document_id,
-            title=title or filename,
-            heading_path=s.heading_path,
-            page_start=s.page_start,
-            page_end=s.page_end,
-            kind=ElementKind.text,
-            text=s.content,
+            chunk_ids=[c.id],
+            document_id=c.document_id,
+            title=c.document.title or c.document.filename,
+            heading_path=c.section.heading_path if c.section else [],
+            page_start=c.page_start,
+            page_end=c.page_end,
+            kind=c.kind,
+            text=c.content,
             score=0.0,
         )
-        for i, (s, title, filename) in enumerate(rows.all())
+        for i, c in enumerate(chunks)
     ]
 
 

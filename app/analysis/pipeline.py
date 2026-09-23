@@ -1,6 +1,6 @@
 """Executes an AnalysisRun.
 
-study_guide: outline(mapped over every section)  →  practice(outline, facets)
+study_guide: outline(mapped over every chunk)  →  practice(outline, facets)
 comparison:  facets(doc A) + facets(doc B)  →  comparison
 
 Results are stored as JSON with the passages each stage used, so a client can resolve every
