@@ -101,6 +101,43 @@ def parse_pdf(data: bytes) -> ParsedDoc:
     return ParsedDoc(title=title, page_count=len(pages), blocks=_drop_running_heads(blocks))
 
 
+def explode_scans(blocks: list[Block]) -> list[Block]:
+    """A scanned page is OCR'd as one Markdown blob, so the layout model never saw its headings.
+    Split that Markdown back into heading and text blocks: the document regains its hierarchy,
+    which sections, chunk heading paths and citation granularity all depend on. The page render
+    is dropped — the source PDF is what gets displayed, so keeping it would only cost storage."""
+    out: list[Block] = []
+    for b in blocks:
+        if b.role != "scan" or not b.content.strip():
+            out.append(b)
+            continue
+        out.extend(_split_markdown(b.content, b.page))
+    return out
+
+
+_MD_HEADING = re.compile(r"^(#{1,6})\s+(\S.*)$")
+
+
+def _split_markdown(markdown: str, page: int) -> list[Block]:
+    blocks: list[Block] = []
+    buffer: list[str] = []
+
+    def flush() -> None:
+        body = "\n".join(buffer).strip()
+        if body:
+            blocks.append(Block(page, "text", ElementKind.text, body, None))
+        buffer.clear()
+
+    for line in markdown.splitlines():
+        if _MD_HEADING.match(line):
+            flush()
+            blocks.append(Block(page, "section-header", ElementKind.text, line.strip(), None))
+        else:
+            buffer.append(line)
+    flush()
+    return blocks
+
+
 def _drop_running_heads(blocks: list[Block]) -> list[Block]:
     """A 'heading' that recurs on 3+ pages is a running header the layout model missed."""
     pages_by_heading: dict[str, set[int]] = {}

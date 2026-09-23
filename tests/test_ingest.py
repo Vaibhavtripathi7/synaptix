@@ -131,3 +131,33 @@ async def test_a_failed_batch_degrades_only_its_own_pages():
 
     assert degraded == 1
     assert "503" in scans[0].meta["enrich_error"] and scans[1].content == "ok"
+
+
+def test_ocr_pages_regain_their_heading_structure():
+    """A scanned page is OCR'd as one Markdown blob; splitting it back into heading and text
+    blocks is what gives the document sections, chunk heading paths and per-page citations."""
+    from app.ingest.parse import explode_scans
+
+    page = Block(
+        4,
+        "scan",
+        ElementKind.text,
+        "## Power\nActive power.\n\n### Reactive\nQ lags.",
+        None,
+        b"png",
+    )
+    keep = Block(4, "text", ElementKind.text, "untouched", (1.0, 2.0, 3.0, 4.0))
+    out = explode_scans([page, keep])
+
+    assert [(b.role, b.content) for b in out[:4]] == [
+        ("section-header", "## Power"),
+        ("text", "Active power."),
+        ("section-header", "### Reactive"),
+        ("text", "Q lags."),
+    ]
+    assert all(b.page == 4 for b in out)
+    assert all(b.image_png is None for b in out), "page renders must not be stored per block"
+    assert out[-1] is keep
+
+    secs = build_sections(explode_scans([page]), None)
+    assert [s.heading_path for s in secs] == [["Power"], ["Power", "Reactive"]]

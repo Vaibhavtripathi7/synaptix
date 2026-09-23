@@ -12,7 +12,7 @@ from app.db.models import Chunk, DocStatus, Document, Element, ElementKind, Sect
 from app.db.session import SessionLocal
 from app.ingest.chunk import build_sections, chunk_sections
 from app.ingest.enrich import enrich
-from app.ingest.parse import parse_pdf
+from app.ingest.parse import explode_scans, parse_pdf
 from app.llm.client import Gemini
 from app.llm.embeddings import Embedder
 from app.storage import LocalStorage
@@ -62,6 +62,7 @@ async def _run(session, doc: Document, storage, llm, embedder, settings: Setting
     await stage(DocStatus.enriching)
     degraded = await enrich(parsed, llm, settings.ocr_batch_pages)
 
+    parsed.blocks = explode_scans(parsed.blocks)
     sections = build_sections(parsed.blocks, parsed.title)
     drafts = chunk_sections(
         parsed.blocks, sections, settings.chunk_tokens, settings.chunk_overlap_tokens
