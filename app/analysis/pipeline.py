@@ -1,6 +1,6 @@
 """Executes an AnalysisRun.
 
-study_guide: outline(facets)  →  practice(outline, facets)
+study_guide: outline(mapped over every section)  →  practice(outline, facets)
 comparison:  facets(doc A) + facets(doc B)  →  comparison
 
 Results are stored as JSON with the passages each stage used, so a client can resolve every
@@ -69,7 +69,7 @@ async def run_analysis(run_id: uuid.UUID, answerer: Answerer) -> None:
 
 async def _study_guide(session, answerer: Answerer, document_ids: list[uuid.UUID]) -> dict:
     """Two stages: extract the material, then set questions grounded in what was extracted."""
-    outline, o_pass = await agents.run_agent(agents.OUTLINE, answerer, session, document_ids)
+    outline, o_pass = await agents.run_mapped_agent(agents.OUTLINE, answerer, session, document_ids)
     practice, p_pass = await agents.run_agent(
         agents.PRACTICE,
         answerer,

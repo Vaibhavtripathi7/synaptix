@@ -1,18 +1,27 @@
 """Retrieval-backed analysis agents.
 
-Each agent is a set of retrieval *facets* — short descriptions of what it needs to see — plus a
-structured prompt. Facet hits are unioned into one budgeted, numbered context, so the model sees
-the relevant parts of a document rather than a truncated dump of it, and the output is a
-Pydantic model whose items cite the passages they rest on."""
+Two shapes of agent, because two shapes of question:
+
+* **Retrieval** (`run_agent`) — for outputs answering a question about the material. Facet hits
+  are unioned into one budgeted, numbered context, so the model sees the *relevant* parts.
+* **Coverage** (`run_mapped_agent`) — for outputs that must not miss anything, like a study
+  guide. Retrieval is the wrong primitive there: top-k by definition drops the tail. Instead
+  every section of the document is numbered once and mapped over in batches, and the fragments
+  are merged. Passage numbers stay global across batches, so `evidence` still resolves.
+
+Either way the output is a Pydantic model whose items cite the passages they rest on."""
 
 import asyncio
 import uuid
 from dataclasses import dataclass
 
 from pydantic import BaseModel
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.analysis.schemas import PaperComparison, PracticeSet, StudyOutline
+from app.db.models import Document, ElementKind, Section
+from app.ingest.chunk import count_tokens
 from app.rag.answer import Answerer
 from app.retrieval.context import Passage, build_context, render
 from app.retrieval.hybrid import Hit, hybrid_search
@@ -111,6 +120,97 @@ async def gather_context(
     for p in passages:
         p.n += start_at - 1
     return passages
+
+
+async def document_passages(session: AsyncSession, document_ids: list[uuid.UUID]) -> list[Passage]:
+    """The whole document as numbered passages, one per section, in reading order."""
+    rows = await session.execute(
+        select(Section, Document.title, Document.filename)
+        .join(Document, Section.document_id == Document.id)
+        .where(Section.document_id.in_(document_ids))
+        .order_by(Section.document_id, Section.order_idx)
+    )
+    return [
+        Passage(
+            n=i + 1,
+            chunk_ids=[],
+            document_id=s.document_id,
+            title=title or filename,
+            heading_path=s.heading_path,
+            page_start=s.page_start,
+            page_end=s.page_end,
+            kind=ElementKind.text,
+            text=s.content,
+            score=0.0,
+        )
+        for i, (s, title, filename) in enumerate(rows.all())
+    ]
+
+
+def _batch(passages: list[Passage], budget: int) -> list[list[Passage]]:
+    batches: list[list[Passage]] = [[]]
+    spent = 0
+    for p in passages:
+        cost = count_tokens(p.text)
+        if spent + cost > budget and batches[-1]:
+            batches.append([])
+            spent = 0
+        batches[-1].append(p)
+        spent += cost
+    return [b for b in batches if b]
+
+
+async def run_mapped_agent(
+    agent: Agent,
+    answerer: Answerer,
+    session: AsyncSession,
+    document_ids: list[uuid.UUID],
+    *,
+    inputs: dict[str, BaseModel] | None = None,
+) -> tuple[BaseModel, list[Passage]]:
+    """Maps the agent over the whole document in batches and merges the fragments."""
+    passages = await document_passages(session, document_ids)
+    if not passages:
+        return agent.schema.model_construct(), []
+    batches = _batch(passages, _CONTEXT_TOKENS)
+
+    async def one(batch: list[Passage]) -> BaseModel:
+        return await answerer.llm.generate_structured(
+            _prompt(batch, inputs),
+            agent.schema,
+            system=agent.system,
+            strong=True,
+            think=True,
+        )
+
+    fragments = await asyncio.gather(*(one(b) for b in batches))
+    return _merge(fragments), passages
+
+
+def _merge(fragments: list[BaseModel]) -> BaseModel:
+    """Concatenates list fields across fragments, de-duplicating by the item's name or text;
+    scalar fields take the longest non-empty value."""
+    merged: dict = {}
+    for field in type(fragments[0]).model_fields:
+        values = [getattr(f, field) for f in fragments]
+        if not isinstance(values[0], list):
+            merged[field] = max((v for v in values if v), key=len, default="")
+            continue
+        seen: dict[str, object] = {}
+        for item in (i for v in values for i in v):
+            key = (
+                (
+                    getattr(item, "name", None)
+                    or getattr(item, "question", None)
+                    or getattr(item, "text", "")
+                )
+                .strip()
+                .casefold()
+            )
+            if key and key not in seen:
+                seen[key] = item
+        merged[field] = list(seen.values())
+    return type(fragments[0])(**merged)
 
 
 async def run_agent(
