@@ -1,10 +1,13 @@
 """Multi-tenancy guarantees, against the live database (skipped when it is not up).
 
 Each test pins one promise a hosted deployment makes to anonymous users: their library is
-invisible to others, and their Gemini key never lands in storage or logs."""
+invisible to others, their Gemini key never lands in storage or logs, and filtered vector search
+does not starve a tenant's results."""
 
 import hashlib
+import random
 import secrets
+import uuid
 
 import httpx
 import pytest
@@ -12,11 +15,13 @@ from pydantic import SecretStr
 from sqlalchemy import delete, select, text
 
 from app.core.settings import get_settings
-from app.db.models import Document
+from app.db.models import Chunk, DocStatus, Document, ElementKind
 from app.db.session import SessionLocal
 from app.main import app
 from app.rag import answer as answer_module
+from app.retrieval.hybrid import hybrid_search
 from app.storage import LocalStorage
+from tests.conftest import DIM
 
 
 class FakeQueue:
@@ -122,3 +127,69 @@ async def test_nothing_is_queued_when_no_key_is_available(client, small_pdf, mon
         answer_module.answerer_for.cache_clear()
     assert r.status_code == 400 and "Gemini API key" in r.json()["detail"]
     assert client._transport.app.state.queue.jobs == []
+
+
+async def test_filtered_vector_search_does_not_starve_a_tenant(db):
+    """B's chunks cluster where the query points, A's sit on the far side. When the planner
+    picks the HNSW index — as it does for large tenants — the index yields its ef_search nearest
+    vectors globally and the tenant filter runs afterwards, so A loses results it plainly has.
+    The control query shows the collapse is real here; hybrid_search must not suffer it."""
+    rng = random.Random(7)
+
+    def near(sign: float) -> list[float]:
+        return [sign + rng.gauss(0, 0.3)] + [rng.gauss(0, 0.3) for _ in range(DIM - 1)]
+
+    ids = {}
+    async with SessionLocal() as s:
+        for name, n, sign in (("B", 1500, 1.0), ("A", 1000, -1.0)):
+            d = Document(
+                workspace_id=name * 64,
+                filename="hnsw.pdf",
+                content_hash=uuid.uuid4().hex,
+                storage_key="x",
+                status=DocStatus.ready,
+            )
+            s.add(d)
+            await s.flush()
+            ids[name] = d.id
+            s.add_all(
+                Chunk(
+                    document_id=d.id,
+                    order_idx=i,
+                    kind=ElementKind.text,
+                    content=f"{name}{i}",
+                    token_count=1,
+                    page_start=1,
+                    page_end=1,
+                    embedding=near(sign),
+                )
+                for i in range(n)
+            )
+        await s.commit()
+        await s.execute(text("ANALYZE chunks"))
+        await s.commit()
+        try:
+            query, k = near(1.0), 10
+            # Force the index plan large tenants get: no bitmap scan, no explicit sort.
+            force = "SET LOCAL enable_sort = off; SET LOCAL enable_bitmapscan = off"
+
+            for stmt in force.split("; ") + ["SET LOCAL hnsw.iterative_scan = off"]:
+                await s.execute(text(stmt))
+            control = await s.scalar(
+                text(
+                    "select count(*) from (select 1 from chunks where document_id = :d "
+                    "order by embedding <=> cast(:q as vector) limit :k) t"
+                ),
+                {"d": ids["A"], "q": str(query), "k": k},
+            )
+            await s.commit()
+            assert control < k, "scenario must reproduce the collapse, or the test proves nothing"
+
+            for stmt in force.split("; "):
+                await s.execute(text(stmt))
+            hits = await hybrid_search(s, [("zzz", query)], document_ids=[ids["A"]], k=k)
+            await s.commit()
+            assert sum(h.dense_rank is not None for h in hits) == k
+        finally:
+            await s.execute(delete(Document).where(Document.filename == "hnsw.pdf"))
+            await s.commit()

@@ -5,7 +5,7 @@ calibration between the two systems, which is why it is the standard choice here
 import uuid
 from dataclasses import dataclass, field
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -53,6 +53,12 @@ async def hybrid_search(
         .options(selectinload(Chunk.section), selectinload(Chunk.document))
         .where(Chunk.document_id.in_(document_ids))
     )
+    # HNSW returns the ef_search nearest vectors *globally* and only then applies the WHERE.
+    # When one workspace is a sliver of the table its chunks may not be in that set at all, and
+    # dense search silently returns nothing. An iterative scan keeps walking the graph until
+    # enough rows pass the filter; strict order because the ranks feed RRF.
+    await session.execute(text("SET LOCAL hnsw.iterative_scan = strict_order"))
+
     for q_idx, (query_text, vector) in enumerate(queries):
         ann = base.order_by(Chunk.embedding.cosine_distance(vector)).limit(k)
         absorb(list(await session.scalars(ann)), q_idx, "dense_rank")

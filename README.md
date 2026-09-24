@@ -86,6 +86,11 @@ Synaptix is built to be hosted for strangers at zero model cost to the operator:
 - **Abuse bounds.** Anonymous means anyone can create a workspace, so upload size, page count and
   documents per workspace are capped (`SYNAPTIX_MAX_UPLOAD_MB`, `_MAX_PAGES`,
   `_MAX_DOCUMENTS_PER_WORKSPACE`).
+- **Filtered vector search that doesn't starve.** HNSW returns the nearest vectors *globally* and
+  applies the tenant filter afterwards, so a workspace that is a sliver of the table can get fewer
+  results than it has. Searches run with pgvector's iterative index scan (`strict_order`). The test
+  suite forces the index plan and shows the collapse — 4 of 10 results for a tenant holding 1,000
+  matching chunks — then shows search returning all 10.
 
 Each guarantee has a test in `tests/test_workspaces.py`, and each test was checked by breaking the
 guarantee it covers and confirming the test fails.
