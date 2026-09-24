@@ -9,13 +9,14 @@ passages are returned alongside the answer so a client can resolve them to page/
 import uuid
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
+from functools import lru_cache
 from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, SecretStr
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.settings import Settings
+from app.core.settings import Settings, get_settings
 from app.db.models import Document
 from app.llm.client import Gemini
 from app.llm.embeddings import Embedder, build_embedder
@@ -134,7 +135,23 @@ class Answerer:
         return "".join([t async for t in self.stream(question, passages, style)])
 
 
-def build_answerer(settings: Settings) -> Answerer:
-    """The model client plus the configured embedder and reranker; one per process."""
+class MissingKeyError(RuntimeError):
+    """No user key was supplied and this server does not provide one."""
+
+
+@lru_cache(maxsize=64)
+def answerer_for(api_key: str | None) -> Answerer:
+    """The client stack for one Gemini key, reused across requests and jobs.
+
+    Users bring their own key, so each key gets its own client and therefore its own
+    concurrency limit: one user's burst cannot starve another's. With no user key the server's
+    configured key is used, if the operator set one; a hosted deployment simply doesn't."""
+    settings = get_settings()
+    if api_key:
+        settings = settings.model_copy(
+            update={"google_api_key": SecretStr(api_key), "gemini_backend": "api_key"}
+        )
+    elif settings.gemini_backend == "api_key" and settings.google_api_key is None:
+        raise MissingKeyError("add a Gemini API key: this server does not provide one")
     llm = Gemini(settings)
     return Answerer(llm, build_embedder(settings, llm), build_reranker(settings, llm), settings)

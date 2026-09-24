@@ -15,7 +15,6 @@ from app.api import analyses, documents, query
 from app.core.logging import configure_logging
 from app.core.settings import get_settings
 from app.db.session import engine
-from app.rag.answer import build_answerer
 from app.storage import LocalStorage
 
 log = structlog.get_logger()
@@ -28,7 +27,6 @@ async def lifespan(app: FastAPI):
     configure_logging()
     settings = get_settings()
     app.state.storage = LocalStorage(settings.storage_dir)
-    app.state.answerer = build_answerer(settings)
     app.state.queue = await create_pool(RedisSettings.from_dsn(settings.redis_url))
     yield
     await app.state.queue.aclose()

@@ -8,6 +8,8 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import (
+    AnswererDep,
+    GeminiKeyDep,
     QueueDep,
     SessionDep,
     SettingsDep,
@@ -35,6 +37,8 @@ async def owned_document(session: AsyncSession, workspace: str, document_id: uui
 async def upload(
     file: UploadFile,
     workspace: WorkspaceDep,
+    key: GeminiKeyDep,
+    _: AnswererDep,  # fails fast with 400 if no Gemini key is available for the ingest
     session: SessionDep,
     storage: StorageDep,
     queue: QueueDep,
@@ -80,7 +84,9 @@ async def upload(
     doc.status, doc.error = DocStatus.queued, None
     await session.commit()
     await storage.put(doc.storage_key, data)
-    await queue.enqueue_job("ingest", str(doc.id))
+    # The key rides the job payload and is never written to Postgres. Redis runs without
+    # persistence and the worker keeps no job results, so it is gone once the job finishes.
+    await queue.enqueue_job("ingest", str(doc.id), key)
     return doc
 
 

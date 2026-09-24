@@ -1,18 +1,21 @@
 """Multi-tenancy guarantees, against the live database (skipped when it is not up).
 
 Each test pins one promise a hosted deployment makes to anonymous users: their library is
-invisible to others."""
+invisible to others, and their Gemini key never lands in storage or logs."""
 
 import hashlib
 import secrets
 
 import httpx
 import pytest
-from sqlalchemy import delete, select
+from pydantic import SecretStr
+from sqlalchemy import delete, select, text
 
+from app.core.settings import get_settings
 from app.db.models import Document
 from app.db.session import SessionLocal
 from app.main import app
+from app.rag import answer as answer_module
 from app.storage import LocalStorage
 
 
@@ -24,15 +27,15 @@ class FakeQueue:
         self.jobs.append((name, args, kwargs))
 
 
-def workspace() -> dict[str, str]:
-    return {"x-workspace": secrets.token_urlsafe(32)}
+def workspace(key: str | None = "AIzaTEST-user-key-00000000000000000") -> dict[str, str]:
+    headers = {"x-workspace": secrets.token_urlsafe(32)}
+    return headers | ({"x-gemini-key": key} if key else {})
 
 
 @pytest.fixture
 async def client(db, tmp_path):
     app.state.storage = LocalStorage(tmp_path)
     app.state.queue = FakeQueue()
-    app.state.answerer = None  # no test here reaches the model
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://t") as c:
         yield c
     async with SessionLocal() as s:  # everything these tests uploaded
@@ -77,6 +80,23 @@ async def test_dedupe_is_per_workspace(client, small_pdf):
     assert other["id"] != first["id"], "another workspace must get its own copy, not A's"
 
 
+SECRET = "AIzaSECRET-value-must-never-appear-0"
+
+
+async def test_the_users_key_travels_masked_and_is_never_stored(client, small_pdf):
+    doc = (await _upload(client, workspace(SECRET), small_pdf)).json()
+
+    name, args, kwargs = client._transport.app.state.queue.jobs[-1]
+    assert name == "ingest" and args[0] == doc["id"]
+    assert isinstance(args[1], SecretStr) and args[1].get_secret_value() == SECRET
+    assert SECRET not in repr(args), "arq logs job arguments"
+    async with SessionLocal() as s:
+        row = await s.scalar(
+            text("select row_to_json(d)::text from documents d where id = :id"), {"id": doc["id"]}
+        )
+    assert SECRET not in row
+
+
 async def test_tokens_are_required_long_and_stored_only_as_hashes(client, small_pdf):
     assert (await client.get("/api/v1/documents")).status_code == 401
     assert (
@@ -88,3 +108,17 @@ async def test_tokens_are_required_long_and_stored_only_as_hashes(client, small_
     async with SessionLocal() as s:
         stored = await s.scalar(select(Document.workspace_id).where(Document.id == doc["id"]))
     assert stored == hashlib.sha256(headers["x-workspace"].encode()).hexdigest()
+
+
+async def test_nothing_is_queued_when_no_key_is_available(client, small_pdf, monkeypatch):
+    keyless = get_settings().model_copy(
+        update={"google_api_key": None, "gemini_backend": "api_key"}
+    )
+    monkeypatch.setattr(answer_module, "get_settings", lambda: keyless)
+    answer_module.answerer_for.cache_clear()
+    try:
+        r = await _upload(client, workspace(key=None), small_pdf)
+    finally:
+        answer_module.answerer_for.cache_clear()
+    assert r.status_code == 400 and "Gemini API key" in r.json()["detail"]
+    assert client._transport.app.state.queue.jobs == []

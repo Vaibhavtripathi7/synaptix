@@ -3,11 +3,12 @@ from typing import Annotated
 
 from arq import ArqRedis
 from fastapi import Depends, Header, HTTPException, Request
+from pydantic import SecretStr
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.settings import Settings, get_settings
 from app.db.session import get_session
-from app.rag.answer import Answerer
+from app.rag.answer import Answerer, MissingKeyError, answerer_for
 from app.storage import LocalStorage
 
 
@@ -30,8 +31,18 @@ def _workspace(x_workspace: Annotated[str | None, Header()] = None) -> str:
     return hashlib.sha256(x_workspace.encode()).hexdigest()
 
 
-def _answerer(request: Request) -> Answerer:
-    return request.app.state.answerer
+def _gemini_key(x_gemini_key: Annotated[str | None, Header()] = None) -> SecretStr | None:
+    """The caller's own Gemini key, if they sent one. Wrapped at once so it is masked in every
+    repr — including arq's job log lines, which print job arguments."""
+    key = (x_gemini_key or "").strip()
+    return SecretStr(key) if key else None
+
+
+def _answerer(key: Annotated[SecretStr | None, Depends(_gemini_key)]) -> Answerer:
+    try:
+        return answerer_for(key.get_secret_value() if key else None)
+    except MissingKeyError as exc:
+        raise HTTPException(400, str(exc)) from None
 
 
 SettingsDep = Annotated[Settings, Depends(get_settings)]
@@ -39,4 +50,6 @@ SessionDep = Annotated[AsyncSession, Depends(get_session)]
 StorageDep = Annotated[LocalStorage, Depends(_storage)]
 QueueDep = Annotated[ArqRedis, Depends(_queue)]
 WorkspaceDep = Annotated[str, Depends(_workspace)]
+GeminiKeyDep = Annotated[SecretStr | None, Depends(_gemini_key)]
+# Resolving the answerer also proves a key is available, so jobs are never queued without one.
 AnswererDep = Annotated[Answerer, Depends(_answerer)]

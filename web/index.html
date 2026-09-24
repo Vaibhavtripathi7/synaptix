@@ -18,8 +18,14 @@
     </label>
     <ul id="documents" class="documents"></ul>
     <details class="settings" id="settings">
-      <summary>Workspace</summary>
+      <summary>Keys</summary>
       <p id="settings-note" class="note"></p>
+      <label for="gemini-key">Your Gemini API key</label>
+      <input id="gemini-key" type="password" autocomplete="off" spellcheck="false"
+        placeholder="Paste from Google AI Studio">
+      <button id="save-key">Save key</button>
+      <p class="fine">Stored in this browser only. Sent with each request, never saved on the server.
+        <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">Get a free key</a></p>
       <label for="workspace-token">Workspace key</label>
       <input id="workspace-token" type="password" autocomplete="off" spellcheck="false">
       <span class="row"><button id="copy-workspace">Copy</button><button id="use-workspace">Open this workspace</button></span>

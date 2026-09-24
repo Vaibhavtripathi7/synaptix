@@ -10,7 +10,7 @@ const STATE_WORDS = {
   embedding: "Indexing", ready: "Ready", failed: "Failed",
 };
 
-// ---------- identity: an anonymous workspace per browser ----------
+// ---------- identity: an anonymous workspace per browser, the user's own Gemini key ----------
 // The workspace token is 256 random bits and *is* the library: anyone holding it can read it,
 // which is why it never leaves this browser except as a request header.
 const store = {
@@ -29,15 +29,17 @@ function workspaceToken() {
 
 function headers(extra = {}) {
   const h = { ...extra, "x-workspace": workspaceToken() };
+  if (store.get("gemini")) h["x-gemini-key"] = store.get("gemini");
   if (store.get("key")) h.authorization = `Bearer ${store.get("key")}`;
   return h;
 }
 // Every API call goes through here, so the identity headers are added in one place.
 async function call(path, opts = {}) {
   const r = await fetch(API + path, { ...opts, headers: headers(opts.headers) });
-  if (r.status === 401) {
+  if (r.status === 401 || r.status === 400) {
     const detail = await r.clone().json().then((d) => String(d.detail || "")).catch(() => "");
-    if (/invalid or missing API key/.test(detail)) {
+    if (/Gemini API key/.test(detail)) openSettings("Add your Gemini API key to read and ask documents.");
+    else if (/invalid or missing API key/.test(detail)) {
       const key = prompt("This server requires an access key.");
       if (key) { store.set("key", key.trim()); return call(path, opts); }
     }
@@ -56,7 +58,17 @@ async function hydrateImages(root) {
 }
 
 // ---------- settings ----------
+function openSettings(message = "") {
+  $("settings").open = true;
+  $("settings-note").textContent = message;
+  if (message) $("gemini-key").focus();
+}
+$("gemini-key").value = store.get("gemini");
 $("workspace-token").value = workspaceToken();
+$("save-key").onclick = () => {
+  store.set("gemini", $("gemini-key").value.trim());
+  $("settings-note").textContent = store.get("gemini") ? "Key saved in this browser only." : "Key removed.";
+};
 $("copy-workspace").onclick = async () => {
   await navigator.clipboard.writeText(workspaceToken()).catch(() => {});
   $("settings-note").textContent = "Workspace key copied. Paste it on another device to open this library.";
@@ -406,4 +418,5 @@ function renderMarkdown(md) {
 
 function esc(s) { return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
 
+if (!store.get("gemini")) openSettings("This app runs on your own free Gemini API key. Add it to start.");
 loadDocs();

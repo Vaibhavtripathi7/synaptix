@@ -2,6 +2,7 @@
 dependencies), `local` is a cross-encoder (bge-reranker-v2-m3), `none` keeps the RRF order."""
 
 import asyncio
+from functools import cache
 from typing import Protocol
 
 from pydantic import BaseModel, Field
@@ -74,10 +75,15 @@ class LocalReranker:
         return sorted(hits, key=lambda h: h.rerank_score, reverse=True)[:top_n]
 
 
+@cache
+def _local_reranker(model_name: str) -> LocalReranker:
+    return LocalReranker(model_name)  # one copy per process, shared by every user's stack
+
+
 def build_reranker(settings: Settings, llm: Gemini) -> Reranker:
     match settings.reranker:
         case "local":
-            return LocalReranker(settings.local_reranker_model)
+            return _local_reranker(settings.local_reranker_model)
         case "llm":
             return LLMReranker(llm)
         case _:

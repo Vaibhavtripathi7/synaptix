@@ -16,7 +16,8 @@ services:
       retries: 10
 
   # Job queue. Never evicts: under memory pressure it refuses writes, which fails loudly, rather
-  # than silently dropping queued jobs.
+  # than silently dropping queued jobs. No persistence, so user API keys in job payloads never
+  # reach disk.
   redis:
     image: redis:7-alpine
     command: ["redis-server", "--save", "", "--appendonly", "no", "--maxmemory-policy", "noeviction"]

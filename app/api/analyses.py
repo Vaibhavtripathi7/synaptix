@@ -6,6 +6,8 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import select
 
 from app.api.deps import (
+    AnswererDep,
+    GeminiKeyDep,
     QueueDep,
     SessionDep,
     WorkspaceDep,
@@ -44,6 +46,8 @@ class AnalysisOut(BaseModel):
 async def create(
     body: AnalysisRequest,
     workspace: WorkspaceDep,
+    key: GeminiKeyDep,
+    _: AnswererDep,  # 400 now, rather than a failed job later, if no key is available
     session: SessionDep,
     queue: QueueDep,
 ) -> AnalysisRun:
@@ -64,7 +68,7 @@ async def create(
     run = AnalysisRun(workspace_id=workspace, kind=body.kind, document_ids=body.document_ids)
     session.add(run)
     await session.commit()
-    await queue.enqueue_job("analyze", str(run.id))
+    await queue.enqueue_job("analyze", str(run.id), key)
     return run
 
 

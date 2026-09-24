@@ -1,6 +1,7 @@
 """Embedding providers behind one interface. `gemini` is managed; `local` runs bge-m3 in-process."""
 
 import asyncio
+from functools import cache
 from typing import Protocol
 
 from app.core.settings import Settings
@@ -41,7 +42,12 @@ class LocalEmbedder:
         return (await self.embed_documents([text]))[0]
 
 
+@cache
+def _local_embedder(model_name: str, dim: int) -> LocalEmbedder:
+    return LocalEmbedder(model_name, dim)  # one copy per process, shared by every user's stack
+
+
 def build_embedder(settings: Settings, llm: Gemini) -> Embedder:
     if settings.embedding_provider == "local":
-        return LocalEmbedder(settings.local_embedding_model, settings.embedding_dim)
+        return _local_embedder(settings.local_embedding_model, settings.embedding_dim)
     return GeminiEmbedder(llm)

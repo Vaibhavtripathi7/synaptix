@@ -6,6 +6,7 @@ from datetime import UTC, datetime, timedelta
 
 import structlog
 from arq.connections import RedisSettings
+from pydantic import SecretStr
 from sqlalchemy import update
 
 from app.analysis.pipeline import run_analysis
@@ -14,7 +15,7 @@ from app.core.settings import get_settings
 from app.db.models import DocStatus, Document
 from app.db.session import SessionLocal
 from app.ingest.pipeline import ingest_document
-from app.rag.answer import build_answerer
+from app.rag.answer import answerer_for
 from app.storage import LocalStorage
 
 log = structlog.get_logger()
@@ -44,11 +45,8 @@ async def reap_stranded() -> None:
 async def startup(ctx: dict) -> None:
     configure_logging()
     settings = get_settings()
-    ctx.update(
-        settings=settings,
-        storage=LocalStorage(settings.storage_dir),
-        answerer=build_answerer(settings),
-    )
+    # No model clients here: each job brings its user's key and gets that key's stack.
+    ctx.update(settings=settings, storage=LocalStorage(settings.storage_dir))
     await reap_stranded()
 
 
@@ -59,8 +57,12 @@ async def _run_job(name: str, work: Callable[[], Awaitable[None]]) -> None:
     log.info("job.done")
 
 
-async def ingest(ctx: dict, document_id: str) -> None:
-    answerer = ctx["answerer"]
+def _stack(api_key: SecretStr | None):
+    return answerer_for(api_key.get_secret_value() if api_key else None)
+
+
+async def ingest(ctx: dict, document_id: str, api_key: SecretStr | None = None) -> None:
+    answerer = _stack(api_key)
     await _run_job(
         "ingest",
         lambda: ingest_document(
@@ -73,8 +75,8 @@ async def ingest(ctx: dict, document_id: str) -> None:
     )
 
 
-async def analyze(ctx: dict, run_id: str) -> None:
-    await _run_job("analyze", lambda: run_analysis(uuid.UUID(run_id), ctx["answerer"]))
+async def analyze(ctx: dict, run_id: str, api_key: SecretStr | None = None) -> None:
+    await _run_job("analyze", lambda: run_analysis(uuid.UUID(run_id), _stack(api_key)))
 
 
 class WorkerSettings:
@@ -84,3 +86,5 @@ class WorkerSettings:
     max_jobs = 2  # parsing is CPU-bound; LLM stages are bounded by llm_concurrency
     job_timeout = JOB_TIMEOUT
     max_tries = 1  # a failed job is surfaced on its row, not retried blindly
+    # Job results include the job's arguments — a user's API key among them. Keep none.
+    keep_result = 0
