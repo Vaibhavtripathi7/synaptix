@@ -4,18 +4,28 @@ import uuid
 import pymupdf
 from fastapi import APIRouter, HTTPException, UploadFile, status
 from fastapi.responses import FileResponse
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import QueueDep, SessionDep, SettingsDep, StorageDep
+from app.api.deps import (
+    QueueDep,
+    SessionDep,
+    SettingsDep,
+    StorageDep,
+    WorkspaceDep,
+)
 from app.api.schemas import DocumentOut, ElementOut
 from app.db.models import Chunk, DocStatus, Document, Element
 
 router = APIRouter(prefix="/documents", tags=["documents"])
 
 
-async def get_or_404(session: AsyncSession, document_id: uuid.UUID) -> Document:
-    doc = await session.get(Document, document_id)
+async def owned_document(session: AsyncSession, workspace: str, document_id: uuid.UUID) -> Document:
+    """The one ownership check every document route goes through. A document in another
+    workspace is reported as missing, not forbidden: existence is not disclosed."""
+    doc = await session.scalar(
+        select(Document).where(Document.id == document_id, Document.workspace_id == workspace)
+    )
     if doc is None:
         raise HTTPException(404, "document not found")
     return doc
@@ -24,12 +34,13 @@ async def get_or_404(session: AsyncSession, document_id: uuid.UUID) -> Document:
 @router.post("", status_code=status.HTTP_202_ACCEPTED, response_model=DocumentOut)
 async def upload(
     file: UploadFile,
+    workspace: WorkspaceDep,
     session: SessionDep,
     storage: StorageDep,
     queue: QueueDep,
     settings: SettingsDep,
 ) -> Document:
-    """Accepts a PDF, deduplicates it by content hash, and queues ingestion.
+    """Accepts a PDF, deduplicates it within the workspace, and queues ingestion.
     Re-uploading a known document returns it unchanged unless its last ingest failed."""
     if file.content_type != "application/pdf":
         raise HTTPException(415, "only application/pdf is accepted")
@@ -38,17 +49,28 @@ async def upload(
     if len(data) > limit:
         raise HTTPException(413, f"file exceeds {settings.max_upload_mb} MB")
     try:
-        pymupdf.open(stream=data, filetype="pdf").close()
+        with pymupdf.open(stream=data, filetype="pdf") as pdf:
+            pages = pdf.page_count
     except Exception:
         raise HTTPException(415, "file is not a readable PDF") from None
+    if pages > settings.max_pages:
+        raise HTTPException(413, f"{pages} pages; the limit is {settings.max_pages}")
 
     digest = hashlib.sha256(data).hexdigest()
-    doc = await session.scalar(select(Document).where(Document.content_hash == digest))
+    doc = await session.scalar(
+        select(Document).where(Document.workspace_id == workspace, Document.content_hash == digest)
+    )
     if doc is not None and doc.status is not DocStatus.failed:
         return doc
     if doc is None:
+        count = await session.scalar(
+            select(func.count()).select_from(Document).where(Document.workspace_id == workspace)
+        )
+        if count >= settings.max_documents_per_workspace:
+            raise HTTPException(409, f"workspace holds {count} documents; delete one to add more")
         doc = Document(
             id=uuid.uuid4(),
+            workspace_id=workspace,
             filename=(file.filename or "document.pdf")[:255],
             content_hash=digest,
             storage_key="",
@@ -63,21 +85,27 @@ async def upload(
 
 
 @router.get("", response_model=list[DocumentOut])
-async def list_documents(session: SessionDep) -> list[Document]:
-    rows = await session.scalars(select(Document).order_by(Document.created_at.desc()))
+async def list_documents(workspace: WorkspaceDep, session: SessionDep) -> list[Document]:
+    rows = await session.scalars(
+        select(Document)
+        .where(Document.workspace_id == workspace)
+        .order_by(Document.created_at.desc())
+    )
     return list(rows)
 
 
 @router.get("/{document_id}", response_model=DocumentOut)
-async def get_document(document_id: uuid.UUID, session: SessionDep) -> Document:
-    return await get_or_404(session, document_id)
+async def get_document(
+    document_id: uuid.UUID, workspace: WorkspaceDep, session: SessionDep
+) -> Document:
+    return await owned_document(session, workspace, document_id)
 
 
 @router.get("/{document_id}/file")
 async def get_file(
-    document_id: uuid.UUID, session: SessionDep, storage: StorageDep
+    document_id: uuid.UUID, workspace: WorkspaceDep, session: SessionDep, storage: StorageDep
 ) -> FileResponse:
-    doc = await get_or_404(session, document_id)
+    doc = await owned_document(session, workspace, document_id)
     # FileResponse handles Range requests, so the viewer fetches pages as it needs them.
     return FileResponse(
         storage.path(doc.storage_key),
@@ -91,10 +119,11 @@ async def get_file(
 async def get_figure(
     document_id: uuid.UUID,
     name: str,
+    workspace: WorkspaceDep,
     session: SessionDep,
     storage: StorageDep,
 ) -> FileResponse:
-    await get_or_404(session, document_id)
+    await owned_document(session, workspace, document_id)
     path = storage.path(f"{document_id}/figures/{name}")
     if not path.is_file():
         raise HTTPException(404, "figure not found")
@@ -103,10 +132,10 @@ async def get_figure(
 
 @router.get("/{document_id}/chunks/{chunk_id}", response_model=list[ElementOut])
 async def chunk_elements(
-    document_id: uuid.UUID, chunk_id: uuid.UUID, session: SessionDep
+    document_id: uuid.UUID, chunk_id: uuid.UUID, workspace: WorkspaceDep, session: SessionDep
 ) -> list[Element]:
     """The page elements (with bboxes) a chunk was built from: what a citation highlights."""
-    await get_or_404(session, document_id)
+    await owned_document(session, workspace, document_id)
     chunk = await session.get(Chunk, chunk_id)
     if chunk is None or chunk.document_id != document_id:
         raise HTTPException(404, "chunk not found")
@@ -119,10 +148,11 @@ async def chunk_elements(
 @router.delete("/{document_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_document(
     document_id: uuid.UUID,
+    workspace: WorkspaceDep,
     session: SessionDep,
     storage: StorageDep,
 ) -> None:
-    doc = await get_or_404(session, document_id)
+    doc = await owned_document(session, workspace, document_id)
     await session.delete(doc)
     await session.commit()
     await storage.delete_prefix(f"{document_id}/")

@@ -11,8 +11,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import (
     AnswererDep,
     SessionDep,
+    WorkspaceDep,
 )
-from app.api.documents import get_or_404
+from app.api.documents import owned_document
 from app.db.models import Chunk, DocStatus, Document, Element, ElementKind
 from app.rag.answer import Style
 from app.rag.graph import build_graph
@@ -24,7 +25,7 @@ router = APIRouter(tags=["query"])
 
 class QueryRequest(BaseModel):
     question: str = Field(min_length=3, max_length=2000)
-    document_ids: list[uuid.UUID] | None = None  # None = every ready document
+    document_ids: list[uuid.UUID] | None = None  # None = every ready document in the workspace
     style: Style = "standard"  # how much explanation the answer should carry
     stream: bool = False
 
@@ -54,10 +55,14 @@ class QueryResponse(BaseModel):
     candidates: int
 
 
-async def _searchable(session: AsyncSession, requested: list[uuid.UUID] | None) -> list[uuid.UUID]:
-    """The documents a query may touch: the requested ones if all are ready, otherwise every
-    ready document. An unknown id is a 404, never silently dropped."""
-    stmt = select(Document.id).where(Document.status == DocStatus.ready)
+async def _searchable(
+    session: AsyncSession, workspace: str, requested: list[uuid.UUID] | None
+) -> list[uuid.UUID]:
+    """The documents a query may touch: the requested ones if all belong to the workspace,
+    otherwise every ready document in it. A foreign id is a 404, never silently dropped."""
+    stmt = select(Document.id).where(
+        Document.workspace_id == workspace, Document.status == DocStatus.ready
+    )
     if requested:
         stmt = stmt.where(Document.id.in_(requested))
     ids = list(await session.scalars(stmt))
@@ -93,14 +98,15 @@ async def _attach_images(session: AsyncSession, passages: list[PassageOut]) -> N
 @router.post("/query", response_model=QueryResponse)
 async def query(
     body: QueryRequest,
+    workspace: WorkspaceDep,
     answerer: AnswererDep,
     session: SessionDep,
 ):
     """Answer a question with citations. With `stream: true` the response is Server-Sent
     Events: one `passages` event, then `token` events, then `done`."""
-    document_ids = await _searchable(session, body.document_ids)
+    document_ids = await _searchable(session, workspace, body.document_ids)
     if not document_ids:
-        raise HTTPException(404, "no ready documents to search")
+        raise HTTPException(404, "no ready documents to search in this workspace")
     retrieval = await answerer.retrieve(session, body.question, document_ids)
     if not retrieval.passages:
         raise HTTPException(404, "no indexed content matched; is the document ready?")
@@ -133,12 +139,13 @@ def _sse(event: str, data) -> str:
 @router.post("/documents/{document_id}/summary")
 async def summary(
     document_id: uuid.UUID,
+    workspace: WorkspaceDep,
     answerer: AnswererDep,
     session: SessionDep,
     refresh: bool = False,
 ) -> dict:
     """Map-reduce summary of a ready document; cached on the document until `refresh=true`."""
-    doc = await _ready(session, document_id)
+    doc = await _ready(session, workspace, document_id)
     if doc.summary is None or refresh:
         await summarize_document(session, doc, answerer.llm)
     return {"document_id": doc.id, "summary": doc.summary}
@@ -147,20 +154,21 @@ async def summary(
 @router.post("/documents/{document_id}/graph")
 async def graph(
     document_id: uuid.UUID,
+    workspace: WorkspaceDep,
     answerer: AnswererDep,
     session: SessionDep,
     refresh: bool = False,
 ) -> dict:
     """Entity–relation graph of a ready document; cached until `refresh=true`."""
-    doc = await _ready(session, document_id)
+    doc = await _ready(session, workspace, document_id)
     graph = doc.graph
     if graph is None or refresh:
         graph = await build_graph(session, doc, answerer.llm)
     return graph
 
 
-async def _ready(session: AsyncSession, document_id: uuid.UUID) -> Document:
-    doc = await get_or_404(session, document_id)
+async def _ready(session: AsyncSession, workspace: str, document_id: uuid.UUID) -> Document:
+    doc = await owned_document(session, workspace, document_id)
     if doc.status is not DocStatus.ready:
         raise HTTPException(409, f"document is {doc.status.value}, not ready")
     return doc

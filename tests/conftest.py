@@ -12,6 +12,9 @@ from app.db.session import SessionLocal
 DIM = get_settings().embedding_dim
 
 
+WORKSPACE = "a" * 64  # a workspace id (already hashed) for fixtures that bypass the API
+
+
 def vec(seed: int) -> list[float]:
     rng = random.Random(seed)
     return [rng.uniform(-1, 1) for _ in range(DIM)]
@@ -31,6 +34,7 @@ async def db():
 async def seeded(db):
     """One ready document: a short section holding three chunks with known text and vectors."""
     doc = Document(
+        workspace_id=WORKSPACE,
         filename="t.pdf",
         content_hash=uuid.uuid4().hex,
         storage_key="x",

@@ -32,8 +32,10 @@ async def hybrid_search(
     k: int,
 ) -> list[Hit]:
     """Runs dense + sparse retrieval for every (text, vector) query variant and fuses all
-    rankings with RRF, within `document_ids`. Returns the top-k fused hits, chunks loaded with
-    their section."""
+    rankings with RRF. Returns the top-k fused hits, chunks loaded with their section.
+
+    `document_ids` is required and callers resolve it inside one workspace: there is no
+    "search everything" mode to leak across tenants by accident."""
     if not document_ids:
         return []
     fused: dict[uuid.UUID, Hit] = {}

@@ -48,20 +48,39 @@ Fully containerised: `docker compose --profile app up --build`.
 
 ### API in four calls
 
+Every call carries a workspace token, which is your library:
+
 ```sh
-curl -F file=@paper.pdf localhost:8000/api/v1/documents   # 202 → queued … ready
-curl localhost:8000/api/v1/query -H 'content-type: application/json' \
+export H1="x-workspace: $(python3 -c 'import secrets; print(secrets.token_urlsafe(32))')"
+curl -H "$H1" -F file=@paper.pdf localhost:8000/api/v1/documents   # 202 → queued … ready
+curl localhost:8000/api/v1/query -H "$H1" -H 'content-type: application/json' \
   -d '{"question": "What does it conclude about genetic algorithms?", "document_ids": ["<id>"]}'
   # {"answer": "... [1][3]", "passages": [{"n": 1, "page_start": 13, "heading_path": [...], "chunk_ids": [...]}]}
   # "stream": true → Server-Sent Events: passages, token…, done
-curl -X POST localhost:8000/api/v1/analyses -H 'content-type: application/json' \
+curl -X POST localhost:8000/api/v1/analyses -H "$H1" -H 'content-type: application/json' \
   -d '{"kind": "study_guide", "document_ids": ["<id>"]}'                  # or "comparison" with two ids
-curl -X POST localhost:8000/api/v1/documents/<id>/graph   # entity graph, cached
+curl -X POST -H "$H1" localhost:8000/api/v1/documents/<id>/graph   # entity graph, cached
 ```
 
 `GET /documents/{id}/chunks/{chunk_id}` returns the page elements (with bboxes) behind a citation;
 that is what the UI highlights. Set `SYNAPTIX_API_KEYS=key1,key2` to additionally gate the whole
 instance behind `Authorization: Bearer` (the UI asks for it once and remembers it).
+
+### Hosting it for other people
+
+Synaptix is built to be hosted for strangers, without accounts:
+
+- **Anonymous workspaces.** Each browser generates a 256-bit token on first visit. It *is* the
+  library: every document, chunk, figure and analysis is scoped to it, through one ownership check
+  that every route shares. Only its SHA-256 is stored, so a database copy grants no access. A
+  document in another workspace is reported as missing, not forbidden. Upload dedupe is per
+  workspace — a global content hash would hand one tenant's upload to another.
+- **Abuse bounds.** Anonymous means anyone can create a workspace, so upload size, page count and
+  documents per workspace are capped (`SYNAPTIX_MAX_UPLOAD_MB`, `_MAX_PAGES`,
+  `_MAX_DOCUMENTS_PER_WORKSPACE`).
+
+Each guarantee has a test in `tests/test_workspaces.py`, and each test was checked by breaking the
+guarantee it covers and confirming the test fails.
 
 ### Retrieval, in one paragraph
 

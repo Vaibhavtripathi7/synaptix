@@ -10,18 +10,29 @@ const STATE_WORDS = {
   embedding: "Indexing", ready: "Ready", failed: "Failed",
 };
 
-// ---------- api ----------
-// The access key, if the server requires one, is kept in this browser and sent on every call.
+// ---------- identity: an anonymous workspace per browser ----------
+// The workspace token is 256 random bits and *is* the library: anyone holding it can read it,
+// which is why it never leaves this browser except as a request header.
 const store = {
   get: (k) => { try { return localStorage.getItem(`synaptix.${k}`) || ""; } catch { return ""; } },
   set: (k, v) => { try { v ? localStorage.setItem(`synaptix.${k}`, v) : localStorage.removeItem(`synaptix.${k}`); } catch {} },
 };
+function workspaceToken() {
+  let t = store.get("workspace");
+  if (!t) {
+    const bytes = crypto.getRandomValues(new Uint8Array(32));
+    t = btoa(String.fromCharCode(...bytes)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+    store.set("workspace", t);
+  }
+  return t;
+}
+
 function headers(extra = {}) {
-  const h = { ...extra };
+  const h = { ...extra, "x-workspace": workspaceToken() };
   if (store.get("key")) h.authorization = `Bearer ${store.get("key")}`;
   return h;
 }
-// Every API call goes through here, so the auth header is added in one place.
+// Every API call goes through here, so the identity headers are added in one place.
 async function call(path, opts = {}) {
   const r = await fetch(API + path, { ...opts, headers: headers(opts.headers) });
   if (r.status === 401) {
@@ -34,6 +45,28 @@ async function call(path, opts = {}) {
   return r;
 }
 
+// Figures are workspace-scoped, and an <img src> cannot send headers: fetch, then show a blob.
+async function hydrateImages(root) {
+  for (const img of root.querySelectorAll("img[data-src]")) {
+    const url = img.dataset.src;
+    img.removeAttribute("data-src");
+    const r = await fetch(url, { headers: headers() });
+    if (r.ok) img.src = URL.createObjectURL(await r.blob());
+  }
+}
+
+// ---------- settings ----------
+$("workspace-token").value = workspaceToken();
+$("copy-workspace").onclick = async () => {
+  await navigator.clipboard.writeText(workspaceToken()).catch(() => {});
+  $("settings-note").textContent = "Workspace key copied. Paste it on another device to open this library.";
+};
+$("use-workspace").onclick = () => {
+  const t = $("workspace-token").value.trim();
+  if (t.length < 32) { $("settings-note").textContent = "A workspace key is at least 32 characters."; return; }
+  store.set("workspace", t);
+  location.reload();
+};
 async function api(path, opts = {}) {
   const r = await call(path, { headers: { "content-type": "application/json" }, ...opts });
   if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail?.toString?.() || r.statusText);
@@ -156,13 +189,14 @@ function renderAnswer(el, markdown, passages, meta) {
   const cited = new Set([...markdown.matchAll(/\[(\d{1,2})\]/g)].map((m) => +m[1]));
   const figures = passages
     .filter((p) => cited.has(p.n) && p.images?.length)
-    .map((p) => `<figure><img src="${p.images[0]}" alt="Figure cited as ${p.n}">
+    .map((p) => `<figure><img data-src="${p.images[0]}" alt="Figure cited as ${p.n}">
       <figcaption><button class="cite" data-n="${p.n}">${p.n}</button> page ${p.page_start}</figcaption></figure>`)
     .join("");
   el.innerHTML =
     withCites(renderMarkdown(markdown), passages) +
     (figures ? `<div class="figures">${figures}</div>` : "") +
     (meta ? `<div class="meta">${meta}</div>` : "");
+  hydrateImages(el);
 }
 
 // [n] markers → buttons that reveal the evidence; `passages` scopes which numbers are valid.

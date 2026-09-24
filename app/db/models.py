@@ -16,6 +16,7 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    UniqueConstraint,
     func,
 )
 from sqlalchemy.dialects.postgresql import JSONB, TSVECTOR, UUID
@@ -64,10 +65,14 @@ class Document(Base):
     # Fetch server-side timestamps in the same flush (RETURNING) so a committed row can be
     # serialised without a lazy refresh, which is illegal outside the async session context.
     __mapper_args__ = {"eager_defaults": True}
+    # Dedupe is per workspace: a global unique hash would hand one tenant's upload to another.
+    __table_args__ = (UniqueConstraint("workspace_id", "content_hash"),)
 
     id: Mapped[uuid.UUID] = _uuid_pk()
+    # sha256 of the workspace token: the owner. Every document route and search filters on it.
+    workspace_id: Mapped[str] = mapped_column(String(64), index=True)
     filename: Mapped[str] = mapped_column(String(255))
-    content_hash: Mapped[str] = mapped_column(String(64), unique=True)  # sha256: dedupe key
+    content_hash: Mapped[str] = mapped_column(String(64))
     storage_key: Mapped[str] = mapped_column(String(255))
     page_count: Mapped[int | None] = mapped_column(Integer)
     status: Mapped[DocStatus] = mapped_column(
@@ -168,6 +173,7 @@ class AnalysisRun(Base):
     __mapper_args__ = {"eager_defaults": True}
 
     id: Mapped[uuid.UUID] = _uuid_pk()
+    workspace_id: Mapped[str] = mapped_column(String(64), index=True)
     kind: Mapped[AnalysisKind] = mapped_column(Enum(AnalysisKind, name="analysis_kind"))
     document_ids: Mapped[list[uuid.UUID]] = mapped_column(ARRAY(UUID(as_uuid=True)))
     status: Mapped[RunStatus] = mapped_column(

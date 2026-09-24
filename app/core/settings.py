@@ -18,7 +18,10 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+asyncpg://synaptix:synaptix@localhost:5433/synaptix"
     redis_url: str = "redis://localhost:6380/0"  # job queue: must never evict
     storage_dir: Path = Path("data/storage")  # source PDFs and extracted figures
+    # Workspaces are anonymous, so these caps are what bound one visitor's disk and CPU use.
     max_upload_mb: int = 100
+    max_pages: int = 500
+    max_documents_per_workspace: int = 50
     # Comma-separated bearer keys accepted on /api/*. Empty (the default) leaves the API open,
     # which is only appropriate for local development.
     api_keys: str = ""

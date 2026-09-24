@@ -17,6 +17,14 @@
       <span>Upload a PDF</span>
     </label>
     <ul id="documents" class="documents"></ul>
+    <details class="settings" id="settings">
+      <summary>Workspace</summary>
+      <p id="settings-note" class="note"></p>
+      <label for="workspace-token">Workspace key</label>
+      <input id="workspace-token" type="password" autocomplete="off" spellcheck="false">
+      <span class="row"><button id="copy-workspace">Copy</button><button id="use-workspace">Open this workspace</button></span>
+      <p class="fine">This key is your library. Anyone who has it can read your documents; keep it private.</p>
+    </details>
     <p class="hint">Answers cite the page they came from. Click a citation to see it.</p>
   </aside>
 
