@@ -8,6 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import Document, Section
+from app.db.session import end_read
 from app.ingest.chunk import count_tokens
 from app.llm.client import Gemini
 
@@ -47,6 +48,7 @@ async def build_graph(session: AsyncSession, doc: Document, llm: Gemini) -> dict
             select(Section).where(Section.document_id == doc.id).order_by(Section.order_idx)
         )
     )
+    await end_read(session)
     batches: list[list[str]] = [[]]
     spent = 0
     for s in sections:

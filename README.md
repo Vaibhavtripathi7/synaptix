@@ -91,6 +91,10 @@ Synaptix is built to be hosted for strangers at zero model cost to the operator:
   results than it has. Searches run with pgvector's iterative index scan (`strict_order`). The test
   suite forces the index plan and shows the collapse — 4 of 10 results for a tenant holding 1,000
   matching chunks — then shows search returning all 10.
+- **No locks held across model calls.** A read transaction left open during a multi-second LLM call
+  keeps its table locks; a migration queued behind them then blocks every other query. Every
+  retrieval path closes its transaction before calling a model, a test asserts it, and migrations
+  run with `lock_timeout` so a blocked deploy fails fast instead of freezing the app.
 
 Each guarantee has a test in `tests/test_workspaces.py`, and each test was checked by breaking the
 guarantee it covers and confirming the test fails.

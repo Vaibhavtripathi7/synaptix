@@ -15,6 +15,7 @@ from app.api.deps import (
 )
 from app.api.documents import owned_document
 from app.db.models import Chunk, DocStatus, Document, Element, ElementKind
+from app.db.session import end_read
 from app.rag.answer import Style
 from app.rag.graph import build_graph
 from app.rag.summarize import summarize_document
@@ -112,6 +113,7 @@ async def query(
         raise HTTPException(404, "no indexed content matched; is the document ready?")
     passages = [PassageOut.from_passage(p) for p in retrieval.passages]
     await _attach_images(session, passages)
+    await end_read(session)  # generation can take tens of seconds; hold no locks through it
     if not body.stream:
         answer = await answerer.answer(body.question, retrieval.passages, body.style)
         return QueryResponse(

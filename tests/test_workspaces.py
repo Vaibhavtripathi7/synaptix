@@ -1,8 +1,8 @@
 """Multi-tenancy guarantees, against the live database (skipped when it is not up).
 
 Each test pins one promise a hosted deployment makes to anonymous users: their library is
-invisible to others, their Gemini key never lands in storage or logs, and filtered vector search
-does not starve a tenant's results."""
+invisible to others, their Gemini key never lands in storage or logs, filtered vector search
+does not starve a tenant's results, and no request holds database locks while a model runs."""
 
 import hashlib
 import random
@@ -14,14 +14,17 @@ import pytest
 from pydantic import SecretStr
 from sqlalchemy import delete, select, text
 
+from app.analysis import agents
 from app.core.settings import get_settings
 from app.db.models import Chunk, DocStatus, Document, ElementKind
 from app.db.session import SessionLocal
 from app.main import app
 from app.rag import answer as answer_module
+from app.rag.answer import Answerer
 from app.retrieval.hybrid import hybrid_search
+from app.retrieval.rerank import LLMReranker
 from app.storage import LocalStorage
-from tests.conftest import DIM
+from tests.conftest import DIM, vec
 
 
 class FakeQueue:
@@ -193,3 +196,33 @@ async def test_filtered_vector_search_does_not_starve_a_tenant(db):
         finally:
             await s.execute(delete(Document).where(Document.filename == "hnsw.pdf"))
             await s.commit()
+
+
+async def test_no_transaction_is_open_while_a_model_runs(seeded):
+    """A read transaction held across a model call keeps its table locks for the call's
+    duration; a migration queued on those locks then blocks every other query."""
+
+    class SpyLLM:
+        def __init__(self, session):
+            self.session, self.calls = session, 0
+
+        async def generate_structured(self, content, schema, **kw):
+            self.calls += 1
+            assert not self.session.in_transaction(), f"transaction open during {schema.__name__}"
+            return schema(**{f: [] for f in schema.model_fields})
+
+    class StubEmbedder:
+        async def embed_documents(self, texts):
+            return [vec(2) for _ in texts]
+
+        async def embed_query(self, text):
+            return vec(2)
+
+    async with SessionLocal() as s:
+        llm = SpyLLM(s)
+        settings = get_settings().model_copy(update={"query_expansion": True})
+        answerer = Answerer(llm, StubEmbedder(), LLMReranker(llm), settings)
+        await answerer.retrieve(s, "isochrone drawbacks", [seeded])  # expansion + rerank
+        await agents.run_agent(agents.PRACTICE, answerer, s, [seeded])  # facets + generation
+        await agents.run_mapped_agent(agents.PRACTICE, answerer, s, [seeded])  # coverage mode
+    assert llm.calls >= 4

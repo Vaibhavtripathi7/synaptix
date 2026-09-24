@@ -22,6 +22,7 @@ from sqlalchemy.orm import selectinload
 
 from app.analysis.schemas import PaperComparison, PracticeSet, StudyOutline
 from app.db.models import Chunk
+from app.db.session import end_read
 from app.ingest.chunk import count_tokens
 from app.rag.answer import Answerer
 from app.retrieval.context import Passage, build_context, render
@@ -101,21 +102,25 @@ async def gather_context(
     *,
     start_at: int = 1,
 ) -> list[Passage]:
-    """Retrieves for every facet concurrently and packs the union into one numbered context.
-    No query expansion and no reranker: a facet is already a single intent, and RRF order is
-    good enough for a union."""
+    """Retrieves for every facet and packs the union into one numbered context.
 
-    async def one(facet: str) -> list[Hit]:
-        vector = await answerer.embedder.embed_query(facet)
-        return await hybrid_search(
-            session, [(facet, vector)], document_ids=document_ids, k=answerer.settings.retrieval_k
-        )
-
+    All facets are embedded in a single request, then searched one after another: a session
+    owns one connection, which cannot run queries concurrently. No query expansion and no
+    reranker — a facet is already a single intent, and RRF order is good enough for a union.
+    The read transaction is closed before returning, because the caller calls a model next."""
+    vectors = await answerer.embedder.embed_documents(list(facets))
     best: dict[uuid.UUID, Hit] = {}
-    for hits in await asyncio.gather(*(one(f) for f in facets)):
+    for facet, vector in zip(facets, vectors, strict=True):
+        hits = await hybrid_search(
+            session,
+            [(facet, vector)],
+            document_ids=document_ids,
+            k=answerer.settings.retrieval_k,
+        )
         for h in hits[:_HITS_PER_FACET]:
             if h.chunk.id not in best or h.score > best[h.chunk.id].score:
                 best[h.chunk.id] = h
+    await end_read(session)
     ranked = sorted(best.values(), key=lambda h: h.score, reverse=True)
     passages = build_context(ranked, _CONTEXT_TOKENS)
     for p in passages:
@@ -138,6 +143,7 @@ async def document_passages(session: AsyncSession, document_ids: list[uuid.UUID]
             .order_by(Chunk.document_id, Chunk.order_idx)
         )
     )
+    await end_read(session)
     return [
         Passage(
             n=i + 1,

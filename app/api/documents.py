@@ -18,6 +18,7 @@ from app.api.deps import (
 )
 from app.api.schemas import DocumentOut, ElementOut
 from app.db.models import Chunk, DocStatus, Document, Element
+from app.db.session import end_read
 
 router = APIRouter(prefix="/documents", tags=["documents"])
 
@@ -112,6 +113,7 @@ async def get_file(
     document_id: uuid.UUID, workspace: WorkspaceDep, session: SessionDep, storage: StorageDep
 ) -> FileResponse:
     doc = await owned_document(session, workspace, document_id)
+    await end_read(session)  # streaming a large file must not hold a transaction
     # FileResponse handles Range requests, so the viewer fetches pages as it needs them.
     return FileResponse(
         storage.path(doc.storage_key),
@@ -130,6 +132,7 @@ async def get_figure(
     storage: StorageDep,
 ) -> FileResponse:
     await owned_document(session, workspace, document_id)
+    await end_read(session)
     path = storage.path(f"{document_id}/figures/{name}")
     if not path.is_file():
         raise HTTPException(404, "figure not found")

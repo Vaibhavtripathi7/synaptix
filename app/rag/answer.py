@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.settings import Settings, get_settings
 from app.db.models import Document
+from app.db.session import end_read
 from app.llm.client import Gemini
 from app.llm.embeddings import Embedder, build_embedder
 from app.retrieval.context import Passage, build_context, render
@@ -82,6 +83,7 @@ class Answerer:
         if expand:
             try:
                 titles = await self._titles(session, document_ids)
+                await end_read(session)
                 prompt = f"Documents being searched: {'; '.join(titles)}\n\nQuestion: {question}"
                 extra = await self.llm.generate_structured(prompt, _Queries, system=_EXPAND_SYSTEM)
                 queries += [q for q in extra.queries[:2] if q and q != question]
@@ -99,6 +101,7 @@ class Answerer:
             k=self.settings.retrieval_k,
         )
         candidates = len(hits)
+        await end_read(session)
         if rerank:
             hits = await self._reranker.rerank(question, hits, top_n)
         return hits[:top_n], queries, candidates

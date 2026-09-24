@@ -14,6 +14,9 @@ target_metadata = Base.metadata
 def _run_migrations(connection) -> None:
     context.configure(connection=connection, target_metadata=target_metadata)
     with context.begin_transaction():
+        # A DDL lock request queues every later query behind it: if a long transaction holds the
+        # table, fail fast and retry the deploy rather than freeze the running app.
+        connection.exec_driver_sql("SET LOCAL lock_timeout = '5s'")
         context.run_migrations()
 
 
