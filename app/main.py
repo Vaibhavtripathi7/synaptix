@@ -1,27 +1,21 @@
-import hmac
-import time
-import uuid
 from contextlib import asynccontextmanager
 
 import structlog
 from arq import create_pool
 from arq.connections import RedisSettings
-from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
+from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from prometheus_client import start_http_server
 from sqlalchemy import text
 
 from app.api import analyses, documents, query
-from app.core import usage
 from app.core.logging import configure_logging
+from app.core.middleware import RequestContext
 from app.core.settings import get_settings
 from app.db.session import engine
 from app.storage import LocalStorage
 
 log = structlog.get_logger()
-# Operator keys gate /api/* when set. Compared in constant time: response timing reveals nothing.
-_KEYS = [k.strip().encode() for k in get_settings().api_keys.split(",") if k.strip()]
 
 
 @asynccontextmanager
@@ -42,41 +36,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Synaptix", version="0.1.0", lifespan=lifespan)
-
-
-@app.middleware("http")
-async def request_context(request: Request, call_next):
-    """A request id on every log line (echoed to the client), the optional operator-key gate,
-    a token ledger for the request, and one structured access-log line per API call."""
-    request_id = request.headers.get("x-request-id") or uuid.uuid4().hex[:12]
-    structlog.contextvars.clear_contextvars()
-    structlog.contextvars.bind_contextvars(request_id=request_id)
-    is_api = request.url.path.startswith("/api/")
-    if is_api and _KEYS:
-        token = request.headers.get("authorization", "").removeprefix("Bearer ").strip().encode()
-        if not any(hmac.compare_digest(token, key) for key in _KEYS):
-            return JSONResponse(
-                {"detail": "invalid or missing API key"},
-                status_code=401,
-                headers={"x-request-id": request_id},
-            )
-    ledger = usage.begin()
-    started = time.perf_counter()
-    response = await call_next(request)
-    response.headers["x-request-id"] = request_id
-    if is_api:
-        tokens = {"input_tokens": ledger.input_tokens, "output_tokens": ledger.output_tokens}
-        log.info(
-            "http",
-            method=request.method,
-            path=request.url.path,
-            status=response.status_code,
-            ms=round((time.perf_counter() - started) * 1000),
-            **(tokens if ledger.calls else {}),
-        )
-    return response
-
-
+app.add_middleware(RequestContext, operator_keys=get_settings().api_keys)
 app.include_router(documents.router, prefix="/api/v1")
 app.include_router(query.router, prefix="/api/v1")
 app.include_router(analyses.router, prefix="/api/v1")

@@ -69,9 +69,9 @@ async def _poll_queue_depth(redis, every: float = 5.0) -> None:
         await asyncio.sleep(every)
 
 
-async def _run_job(name: str, work: Callable[[], Awaitable[None]]) -> None:
+async def _run_job(name: str, request_id: str | None, work: Callable[[], Awaitable[None]]) -> None:
     structlog.contextvars.clear_contextvars()
-    structlog.contextvars.bind_contextvars(job=name)
+    structlog.contextvars.bind_contextvars(job=name, request_id=request_id)
     ledger = usage.begin()
     started = time.perf_counter()
     try:
@@ -93,10 +93,13 @@ def _stack(api_key: SecretStr | None):
     return answerer_for(api_key.get_secret_value() if api_key else None)
 
 
-async def ingest(ctx: dict, document_id: str, api_key: SecretStr | None = None) -> None:
+async def ingest(
+    ctx: dict, document_id: str, api_key: SecretStr | None = None, request_id: str | None = None
+) -> None:
     answerer = _stack(api_key)
     await _run_job(
         "ingest",
+        request_id,
         lambda: ingest_document(
             uuid.UUID(document_id),
             storage=ctx["storage"],
@@ -107,8 +110,10 @@ async def ingest(ctx: dict, document_id: str, api_key: SecretStr | None = None) 
     )
 
 
-async def analyze(ctx: dict, run_id: str, api_key: SecretStr | None = None) -> None:
-    await _run_job("analyze", lambda: run_analysis(uuid.UUID(run_id), _stack(api_key)))
+async def analyze(
+    ctx: dict, run_id: str, api_key: SecretStr | None = None, request_id: str | None = None
+) -> None:
+    await _run_job("analyze", request_id, lambda: run_analysis(uuid.UUID(run_id), _stack(api_key)))
 
 
 class WorkerSettings:

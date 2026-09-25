@@ -12,6 +12,7 @@ from app.api.deps import (
     SessionDep,
     WorkspaceDep,
 )
+from app.core.middleware import current_request_id
 from app.db.models import AnalysisKind, AnalysisRun, DocStatus, Document, RunStatus
 
 router = APIRouter(prefix="/analyses", tags=["analyses"])
@@ -69,7 +70,7 @@ async def create(
     run = AnalysisRun(workspace_id=workspace, kind=body.kind, document_ids=body.document_ids)
     session.add(run)
     await session.commit()
-    await queue.enqueue_job("analyze", str(run.id), key)
+    await queue.enqueue_job("analyze", str(run.id), key, request_id=current_request_id())
     return run
 
 

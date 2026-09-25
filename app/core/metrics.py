@@ -8,7 +8,19 @@ the metrics backend down with it."""
 
 from prometheus_client import Counter, Gauge, Histogram
 
+_FAST = (0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60)
 _SLOW = (0.1, 0.25, 0.5, 1, 2, 4, 8, 16, 32, 64, 128)
+
+HTTP_REQUESTS = Counter(
+    "synaptix_http_requests_total", "HTTP requests handled", ["route", "method", "status"]
+)
+HTTP_LATENCY = Histogram(
+    "synaptix_http_request_duration_seconds",
+    "Time to response headers",
+    ["route", "method"],
+    buckets=_FAST,
+)
+HTTP_IN_FLIGHT = Gauge("synaptix_http_in_flight", "Requests currently being handled")
 
 LLM_CALLS = Counter(
     "synaptix_llm_calls_total", "Model calls by outcome", ["model", "op", "outcome"]

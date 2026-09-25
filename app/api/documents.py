@@ -17,6 +17,7 @@ from app.api.deps import (
     WorkspaceDep,
 )
 from app.api.schemas import DocumentOut, ElementOut
+from app.core.middleware import current_request_id
 from app.db.models import Chunk, DocStatus, Document, Element
 from app.db.session import end_read
 
@@ -87,7 +88,7 @@ async def upload(
     await storage.put(doc.storage_key, data)
     # The key rides the job payload and is never written to Postgres. Redis runs without
     # persistence and the worker keeps no job results, so it is gone once the job finishes.
-    await queue.enqueue_job("ingest", str(doc.id), key)
+    await queue.enqueue_job("ingest", str(doc.id), key, request_id=current_request_id())
     return doc
 
 
