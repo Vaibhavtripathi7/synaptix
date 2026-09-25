@@ -9,6 +9,7 @@ from prometheus_client import start_http_server
 from sqlalchemy import text
 
 from app.api import analyses, documents, query
+from app.core.limits import Admission, RateLimiter
 from app.core.logging import configure_logging
 from app.core.middleware import RequestContext
 from app.core.settings import get_settings
@@ -24,6 +25,8 @@ async def lifespan(app: FastAPI):
     settings = get_settings()
     app.state.storage = LocalStorage(settings.storage_dir)
     app.state.queue = await create_pool(RedisSettings.from_dsn(settings.redis_url))
+    app.state.limiter = RateLimiter(app.state.queue)
+    app.state.admission = Admission(settings.max_inflight_model_requests)
     # Metrics on an internal port: scraped over the private network, never published. A busy
     # port (a second local process) costs the metrics endpoint, not the service.
     try:

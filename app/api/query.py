@@ -7,9 +7,12 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from starlette.background import BackgroundTask
 
 from app.api.deps import (
+    AdmissionDep,
     AnswererDep,
+    ModelLimit,
     SessionDep,
     WorkspaceDep,
 )
@@ -98,11 +101,12 @@ async def _attach_images(session: AsyncSession, passages: list[PassageOut]) -> N
         ]
 
 
-@router.post("/query", response_model=QueryResponse)
+@router.post("/query", response_model=QueryResponse, dependencies=[ModelLimit])
 async def query(
     body: QueryRequest,
     workspace: WorkspaceDep,
     answerer: AnswererDep,
+    admission: AdmissionDep,
     session: SessionDep,
 ):
     """Answer a question with citations. With `stream: true` the response is Server-Sent
@@ -110,31 +114,42 @@ async def query(
     document_ids = await _searchable(session, workspace, body.document_ids)
     if not document_ids:
         raise HTTPException(404, "no ready documents to search in this workspace")
-    retrieval = await answerer.retrieve(session, body.question, document_ids)
-    if not retrieval.passages:
-        raise HTTPException(404, "no indexed content matched; is the document ready?")
-    passages = [PassageOut.from_passage(p) for p in retrieval.passages]
-    await _attach_images(session, passages)
-    await end_read(session)  # generation can take tens of seconds; hold no locks through it
-    if not body.stream:
-        answer = await answerer.answer(body.question, retrieval.passages, body.style)
-        return QueryResponse(
-            answer=answer,
-            passages=passages,
-            queries=retrieval.queries,
-            candidates=retrieval.candidates,
-            usage=usage.current().as_dict(),
-        )
+    ticket = admission.enter()
+    try:
+        retrieval = await answerer.retrieve(session, body.question, document_ids)
+        if not retrieval.passages:
+            raise HTTPException(404, "no indexed content matched; is the document ready?")
+        passages = [PassageOut.from_passage(p) for p in retrieval.passages]
+        await _attach_images(session, passages)
+        await end_read(session)  # generation can take tens of seconds; hold no locks through it
+        if not body.stream:
+            answer = await answerer.answer(body.question, retrieval.passages, body.style)
+            return QueryResponse(
+                answer=answer,
+                passages=passages,
+                queries=retrieval.queries,
+                candidates=retrieval.candidates,
+                usage=usage.current().as_dict(),
+            )
+    finally:
+        if not body.stream:
+            ticket.release()
 
     async def events() -> AsyncIterator[str]:
-        yield _sse("passages", [p.model_dump(mode="json") for p in passages])
-        async for token in answerer.stream(body.question, retrieval.passages, body.style):
-            yield _sse("token", token)
-        done = {"queries": retrieval.queries, "candidates": retrieval.candidates}
-        yield _sse("done", done | {"usage": usage.current().as_dict()})
+        try:
+            yield _sse("passages", [p.model_dump(mode="json") for p in passages])
+            async for token in answerer.stream(body.question, retrieval.passages, body.style):
+                yield _sse("token", token)
+            done = {"queries": retrieval.queries, "candidates": retrieval.candidates}
+            yield _sse("done", done | {"usage": usage.current().as_dict()})
+        finally:
+            ticket.release()
 
     return StreamingResponse(
-        events(), media_type="text/event-stream", headers={"Cache-Control": "no-cache"}
+        events(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache"},
+        background=BackgroundTask(ticket.release),  # if the client left before streaming began
     )
 
 
@@ -142,26 +157,32 @@ def _sse(event: str, data) -> str:
     return f"event: {event}\ndata: {json.dumps(data)}\n\n"
 
 
-@router.post("/documents/{document_id}/summary")
+@router.post("/documents/{document_id}/summary", dependencies=[ModelLimit])
 async def summary(
     document_id: uuid.UUID,
     workspace: WorkspaceDep,
     answerer: AnswererDep,
+    admission: AdmissionDep,
     session: SessionDep,
     refresh: bool = False,
 ) -> dict:
     """Map-reduce summary of a ready document; cached on the document until `refresh=true`."""
     doc = await _ready(session, workspace, document_id)
     if doc.summary is None or refresh:
-        await summarize_document(session, doc, answerer.llm)
+        ticket = admission.enter()
+        try:
+            await summarize_document(session, doc, answerer.llm)
+        finally:
+            ticket.release()
     return {"document_id": doc.id, "summary": doc.summary}
 
 
-@router.post("/documents/{document_id}/graph")
+@router.post("/documents/{document_id}/graph", dependencies=[ModelLimit])
 async def graph(
     document_id: uuid.UUID,
     workspace: WorkspaceDep,
     answerer: AnswererDep,
+    admission: AdmissionDep,
     session: SessionDep,
     refresh: bool = False,
 ) -> dict:
@@ -169,7 +190,11 @@ async def graph(
     doc = await _ready(session, workspace, document_id)
     graph = doc.graph
     if graph is None or refresh:
-        graph = await build_graph(session, doc, answerer.llm)
+        ticket = admission.enter()
+        try:
+            graph = await build_graph(session, doc, answerer.llm)
+        finally:
+            ticket.release()
     return graph
 
 

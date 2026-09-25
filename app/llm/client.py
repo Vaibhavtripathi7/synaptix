@@ -63,6 +63,7 @@ class Gemini:
         self._embedding_model = settings.embedding_model
         self._embedding_dim = settings.embedding_dim
         self._sem = asyncio.Semaphore(settings.llm_concurrency)
+        self._wait_on_rate_limit = settings.llm_wait_on_rate_limit
 
     @staticmethod
     def image(png: bytes) -> types.Part:
@@ -101,7 +102,11 @@ class Gemini:
                     result = await call(model)
                 except errors.APIError as exc:
                     LLM_LATENCY.labels(model, op).observe(time.perf_counter() - started)
-                    wait = _rate_limit_wait(exc) if exc.code == 429 else None
+                    wait = (
+                        _rate_limit_wait(exc)
+                        if exc.code == 429 and self._wait_on_rate_limit
+                        else None
+                    )
                     if wait and not waited:
                         LLM_CALLS.labels(model, op, "rate_limited").inc()
                         log.info("llm.rate_limited", model=model, wait_s=wait)

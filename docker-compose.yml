@@ -38,6 +38,7 @@ services:
     environment:
       SYNAPTIX_DATABASE_URL: postgresql+asyncpg://synaptix:synaptix@db:5432/synaptix
       SYNAPTIX_REDIS_URL: redis://redis:6379/0
+      SYNAPTIX_LLM_WAIT_ON_RATE_LIMIT: "false"  # never sleep inside a request; fail over
     ports: ["127.0.0.1:8000:8000"]
     volumes: [synaptix-storage:/app/data/storage]
     depends_on:

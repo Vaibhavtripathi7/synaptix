@@ -15,6 +15,7 @@ from pydantic import SecretStr
 from sqlalchemy import delete, select, text
 
 from app.analysis import agents
+from app.core.limits import BUCKETS, Admission, RateLimiter
 from app.core.settings import get_settings
 from app.db.models import Chunk, DocStatus, Document, ElementKind
 from app.db.session import SessionLocal
@@ -41,9 +42,11 @@ def workspace(key: str | None = "AIzaTEST-user-key-00000000000000000") -> dict[s
 
 
 @pytest.fixture
-async def client(db, tmp_path):
+async def client(db, redis, tmp_path):
     app.state.storage = LocalStorage(tmp_path)
     app.state.queue = FakeQueue()
+    app.state.limiter = RateLimiter(redis)
+    app.state.admission = Admission(limit=64)
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://t") as c:
         yield c
     async with SessionLocal() as s:  # everything these tests uploaded
@@ -226,3 +229,46 @@ async def test_no_transaction_is_open_while_a_model_runs(seeded):
         await agents.run_agent(agents.PRACTICE, answerer, s, [seeded])  # facets + generation
         await agents.run_mapped_agent(agents.PRACTICE, answerer, s, [seeded])  # coverage mode
     assert llm.calls >= 4
+
+
+async def test_a_workspace_over_its_rate_limit_gets_429_with_retry_after(client, monkeypatch):
+    monkeypatch.setitem(BUCKETS, "read", (0.1, 3))  # 3 immediately, then one every 10 s
+    a, b = workspace(), workspace()
+    codes = [(await client.get("/api/v1/documents", headers=a)).status_code for _ in range(5)]
+    assert codes == [200, 200, 200, 429, 429]
+    limited = await client.get("/api/v1/documents", headers=a)
+    assert limited.status_code == 429 and 1 <= int(limited.headers["retry-after"]) <= 10
+    assert (await client.get("/api/v1/documents", headers=b)).status_code == 200, "per workspace"
+
+
+async def test_a_full_replica_sheds_load_with_503_and_every_ticket_comes_back(client, seeded):
+    """Model-backed requests over the per-replica cap are refused immediately, not queued; and
+    a request that fails midway must still return its slot, or capacity leaks until restart."""
+    from app.api.deps import _answerer
+
+    class Boom:
+        settings = get_settings()
+
+        async def retrieve(self, *a, **k):
+            raise RuntimeError("model outage")
+
+    admission = client._transport.app.state.admission
+    headers = workspace()
+    wid = hashlib.sha256(headers["x-workspace"].encode()).hexdigest()
+    async with SessionLocal() as s:
+        await s.execute(
+            text("update documents set workspace_id = :w where id = :d"), {"w": wid, "d": seeded}
+        )
+        await s.commit()
+    app.dependency_overrides[_answerer] = lambda: Boom()
+    try:
+        admission.limit, admission.in_flight = 1, 1  # replica already at capacity
+        r = await client.post("/api/v1/query", json={"question": "why?"}, headers=headers)
+        assert r.status_code == 503 and r.headers["retry-after"] == "1"
+
+        admission.in_flight = 0
+        with pytest.raises(RuntimeError):  # the handler fails after being admitted
+            await client.post("/api/v1/query", json={"question": "why?"}, headers=headers)
+        assert admission.in_flight == 0, "a failed request leaked its admission slot"
+    finally:
+        app.dependency_overrides.pop(_answerer, None)

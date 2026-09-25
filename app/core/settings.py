@@ -38,6 +38,17 @@ class Settings(BaseSettings):
     # Tried in order when the primary returns 429/503 (quota, outage). JSON list in env.
     llm_fallback_models: list[str] = ["gemini-3-flash-preview", "gemini-3.5-flash-lite"]
     llm_concurrency: int = 4
+    # Workers wait out a per-minute rate limit; API processes should not sleep ~30s inside a
+    # request, so they set this false and fail over at once.
+    llm_wait_on_rate_limit: bool = True
+    max_inflight_model_requests: int = 64  # per replica; above it, 503 + Retry-After
+    # Per-workspace token buckets: (sustained per second, burst). Model-backed work is scarce,
+    # ingestion is the most expensive thing a caller can trigger, reads are cheap.
+    rate_limits: dict[str, tuple[float, int]] = {
+        "model": (0.5, 10),
+        "upload": (0.2, 5),
+        "read": (20.0, 100),
+    }
     # USD per million tokens, (input, output), keyed by model. Empty: usage is reported in
     # tokens only — prices change and a stale default would report a confident wrong number.
     llm_prices_per_mtok: dict[str, tuple[float, float]] = {}

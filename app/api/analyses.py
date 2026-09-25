@@ -8,7 +8,9 @@ from sqlalchemy import select
 from app.api.deps import (
     AnswererDep,
     GeminiKeyDep,
+    ModelLimit,
     QueueDep,
+    ReadLimit,
     SessionDep,
     WorkspaceDep,
 )
@@ -44,7 +46,9 @@ class AnalysisOut(BaseModel):
     finished_at: datetime | None
 
 
-@router.post("", status_code=status.HTTP_202_ACCEPTED, response_model=AnalysisOut)
+@router.post(
+    "", status_code=status.HTTP_202_ACCEPTED, response_model=AnalysisOut, dependencies=[ModelLimit]
+)
 async def create(
     body: AnalysisRequest,
     workspace: WorkspaceDep,
@@ -74,7 +78,7 @@ async def create(
     return run
 
 
-@router.get("", response_model=list[AnalysisOut])
+@router.get("", response_model=list[AnalysisOut], dependencies=[ReadLimit])
 async def list_runs(
     workspace: WorkspaceDep, session: SessionDep, document_id: uuid.UUID | None = None
 ) -> list[AnalysisRun]:
@@ -88,7 +92,7 @@ async def list_runs(
     return list(await session.scalars(stmt))
 
 
-@router.get("/{run_id}", response_model=AnalysisOut)
+@router.get("/{run_id}", response_model=AnalysisOut, dependencies=[ReadLimit])
 async def get_run(run_id: uuid.UUID, workspace: WorkspaceDep, session: SessionDep) -> AnalysisRun:
     run = await session.get(AnalysisRun, run_id)
     if run is None or run.workspace_id != workspace:

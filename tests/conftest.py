@@ -117,3 +117,17 @@ def small_pdf() -> bytes:
     pix = doc[0].get_pixmap(dpi=50)  # `p` is stale once more pages exist
     scan.insert_image(scan.rect, pixmap=pix)
     return doc.tobytes()
+
+
+@pytest.fixture
+async def redis():
+    from arq import create_pool
+    from arq.connections import RedisSettings
+
+    try:
+        pool = await create_pool(RedisSettings.from_dsn(get_settings().redis_url), retry=0)
+        await pool.ping()
+    except Exception:
+        pytest.skip("redis not reachable")
+    yield pool
+    await pool.aclose()

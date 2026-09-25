@@ -12,8 +12,13 @@ jobs:
         env: { POSTGRES_USER: synaptix, POSTGRES_PASSWORD: synaptix, POSTGRES_DB: synaptix }
         ports: ["5433:5432"]
         options: --health-cmd "pg_isready -U synaptix" --health-interval 5s --health-timeout 3s --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports: ["6380:6379"]
+        options: --health-cmd "redis-cli ping" --health-interval 5s --health-timeout 3s --health-retries 10
     env:
       SYNAPTIX_DATABASE_URL: postgresql+asyncpg://synaptix:synaptix@localhost:5433/synaptix
+      SYNAPTIX_REDIS_URL: redis://localhost:6380/0
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
@@ -21,7 +26,10 @@ jobs:
       - run: uv sync --frozen
       - run: uv run ruff check . && uv run ruff format --check .
       - run: uv run alembic upgrade head
-      - run: uv run pytest -q
+      # A skipped test in CI means a backing service is missing, which must fail, not pass.
+      - run: |
+          uv run pytest -q -rs | tee pytest.log
+          ! grep -q SKIPPED pytest.log
 
   image:
     runs-on: ubuntu-latest

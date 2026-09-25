@@ -6,6 +6,7 @@ from fastapi import Depends, Header, HTTPException, Request
 from pydantic import SecretStr
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.limits import Admission, RateLimiter
 from app.core.settings import Settings, get_settings
 from app.db.session import get_session
 from app.rag.answer import Answerer, MissingKeyError, answerer_for
@@ -45,6 +46,20 @@ def _answerer(key: Annotated[SecretStr | None, Depends(_gemini_key)]) -> Answere
         raise HTTPException(400, str(exc)) from None
 
 
+def _limit(bucket: str):
+    """Dependency factory: charge one request to `bucket` for the calling workspace."""
+
+    async def check(request: Request, workspace: Annotated[str, Depends(_workspace)]) -> None:
+        limiter: RateLimiter = request.app.state.limiter
+        await limiter.check(workspace, bucket)
+
+    return Depends(check)
+
+
+def _admission(request: Request) -> Admission:
+    return request.app.state.admission
+
+
 SettingsDep = Annotated[Settings, Depends(get_settings)]
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
 StorageDep = Annotated[LocalStorage, Depends(_storage)]
@@ -53,3 +68,7 @@ WorkspaceDep = Annotated[str, Depends(_workspace)]
 GeminiKeyDep = Annotated[SecretStr | None, Depends(_gemini_key)]
 # Resolving the answerer also proves a key is available, so jobs are never queued without one.
 AnswererDep = Annotated[Answerer, Depends(_answerer)]
+AdmissionDep = Annotated[Admission, Depends(_admission)]
+ModelLimit = _limit("model")
+UploadLimit = _limit("upload")
+ReadLimit = _limit("read")

@@ -11,9 +11,11 @@ from app.api.deps import (
     AnswererDep,
     GeminiKeyDep,
     QueueDep,
+    ReadLimit,
     SessionDep,
     SettingsDep,
     StorageDep,
+    UploadLimit,
     WorkspaceDep,
 )
 from app.api.schemas import DocumentOut, ElementOut
@@ -35,7 +37,9 @@ async def owned_document(session: AsyncSession, workspace: str, document_id: uui
     return doc
 
 
-@router.post("", status_code=status.HTTP_202_ACCEPTED, response_model=DocumentOut)
+@router.post(
+    "", status_code=status.HTTP_202_ACCEPTED, response_model=DocumentOut, dependencies=[UploadLimit]
+)
 async def upload(
     file: UploadFile,
     workspace: WorkspaceDep,
@@ -92,7 +96,7 @@ async def upload(
     return doc
 
 
-@router.get("", response_model=list[DocumentOut])
+@router.get("", response_model=list[DocumentOut], dependencies=[ReadLimit])
 async def list_documents(workspace: WorkspaceDep, session: SessionDep) -> list[Document]:
     rows = await session.scalars(
         select(Document)
@@ -102,14 +106,14 @@ async def list_documents(workspace: WorkspaceDep, session: SessionDep) -> list[D
     return list(rows)
 
 
-@router.get("/{document_id}", response_model=DocumentOut)
+@router.get("/{document_id}", response_model=DocumentOut, dependencies=[ReadLimit])
 async def get_document(
     document_id: uuid.UUID, workspace: WorkspaceDep, session: SessionDep
 ) -> Document:
     return await owned_document(session, workspace, document_id)
 
 
-@router.get("/{document_id}/file")
+@router.get("/{document_id}/file", dependencies=[ReadLimit])
 async def get_file(
     document_id: uuid.UUID, workspace: WorkspaceDep, session: SessionDep, storage: StorageDep
 ) -> FileResponse:
@@ -124,7 +128,7 @@ async def get_file(
     )
 
 
-@router.get("/{document_id}/figures/{name}")
+@router.get("/{document_id}/figures/{name}", dependencies=[ReadLimit])
 async def get_figure(
     document_id: uuid.UUID,
     name: str,
@@ -140,7 +144,9 @@ async def get_figure(
     return FileResponse(path, media_type="image/png")
 
 
-@router.get("/{document_id}/chunks/{chunk_id}", response_model=list[ElementOut])
+@router.get(
+    "/{document_id}/chunks/{chunk_id}", response_model=list[ElementOut], dependencies=[ReadLimit]
+)
 async def chunk_elements(
     document_id: uuid.UUID, chunk_id: uuid.UUID, workspace: WorkspaceDep, session: SessionDep
 ) -> list[Element]:
@@ -155,7 +161,7 @@ async def chunk_elements(
     return list(rows)
 
 
-@router.delete("/{document_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{document_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=[ReadLimit])
 async def delete_document(
     document_id: uuid.UUID,
     workspace: WorkspaceDep,
