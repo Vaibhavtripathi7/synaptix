@@ -10,6 +10,7 @@ from pydantic import SecretStr
 from sqlalchemy import update
 
 from app.analysis.pipeline import run_analysis
+from app.core import usage
 from app.core.logging import configure_logging
 from app.core.settings import get_settings
 from app.db.models import DocStatus, Document
@@ -53,8 +54,11 @@ async def startup(ctx: dict) -> None:
 async def _run_job(name: str, work: Callable[[], Awaitable[None]]) -> None:
     structlog.contextvars.clear_contextvars()
     structlog.contextvars.bind_contextvars(job=name)
-    await work()
-    log.info("job.done")
+    ledger = usage.begin()
+    try:
+        await work()
+    finally:
+        log.info("job.done", tokens_in=ledger.input_tokens, tokens_out=ledger.output_tokens)
 
 
 def _stack(api_key: SecretStr | None):

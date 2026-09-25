@@ -134,6 +134,13 @@ daily-quota 429s or 503 overloads. Enrichment degrades per element (a figure tha
 captioned keeps its caption text) instead of failing the document. Each request carries an
 `x-request-id` that appears on every log line and is echoed to the client.
 
+## Operating it
+
+**Token accounting.** Every answer reports the tokens it consumed, across expansion, reranking
+and generation, attributed to the model that actually served each call after failover; ingested
+documents and analysis runs record theirs. Set `SYNAPTIX_LLM_PRICES_PER_MTOK` to also report
+cost; there is no default, because a stale price would be a confident wrong number.
+
 ## Develop
 
 ```sh

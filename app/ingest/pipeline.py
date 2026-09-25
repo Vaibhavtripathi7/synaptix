@@ -7,6 +7,7 @@ import uuid
 import structlog
 from sqlalchemy import delete
 
+from app.core import usage
 from app.core.settings import Settings
 from app.db.models import Chunk, DocStatus, Document, Element, ElementKind, Section
 from app.db.session import SessionLocal
@@ -129,5 +130,6 @@ async def _run(session, doc: Document, storage, llm, embedder, settings: Setting
         "figures": sum(b.kind is ElementKind.figure for b in parsed.blocks),
         "tables": sum(b.kind is ElementKind.table for b in parsed.blocks),
         "enrich_degraded": degraded,
+        "usage": usage.current().as_dict() if usage.current() else None,
     }
     await stage(DocStatus.ready)

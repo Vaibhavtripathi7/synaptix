@@ -13,6 +13,7 @@ import structlog
 from pydantic import BaseModel
 
 from app.analysis import agents
+from app.core import usage
 from app.db.models import AnalysisKind, AnalysisRun, RunStatus
 from app.db.session import SessionLocal
 from app.rag.answer import Answerer
@@ -64,6 +65,7 @@ async def run_analysis(run_id: uuid.UUID, answerer: Answerer) -> None:
             log.exception("analysis.failed", run_id=str(run_id))
             run.status, run.error = RunStatus.failed, f"{type(exc).__name__}: {exc}"[:2000]
         run.finished_at = datetime.now(UTC)
+        run.usage = usage.current().as_dict() if usage.current() else None
         await session.commit()
 
 

@@ -14,6 +14,7 @@ from app.api.deps import (
     WorkspaceDep,
 )
 from app.api.documents import owned_document
+from app.core import usage
 from app.db.models import Chunk, DocStatus, Document, Element, ElementKind
 from app.db.session import end_read
 from app.rag.answer import Style
@@ -54,6 +55,7 @@ class QueryResponse(BaseModel):
     passages: list[PassageOut]
     queries: list[str]
     candidates: int
+    usage: dict  # tokens this answer consumed, across expansion, reranking and generation
 
 
 async def _searchable(
@@ -121,13 +123,15 @@ async def query(
             passages=passages,
             queries=retrieval.queries,
             candidates=retrieval.candidates,
+            usage=usage.current().as_dict(),
         )
 
     async def events() -> AsyncIterator[str]:
         yield _sse("passages", [p.model_dump(mode="json") for p in passages])
         async for token in answerer.stream(body.question, retrieval.passages, body.style):
             yield _sse("token", token)
-        yield _sse("done", {"queries": retrieval.queries, "candidates": retrieval.candidates})
+        done = {"queries": retrieval.queries, "candidates": retrieval.candidates}
+        yield _sse("done", done | {"usage": usage.current().as_dict()})
 
     return StreamingResponse(
         events(), media_type="text/event-stream", headers={"Cache-Control": "no-cache"}

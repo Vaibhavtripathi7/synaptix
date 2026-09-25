@@ -36,6 +36,9 @@ class Settings(BaseSettings):
     # Tried in order when the primary returns 429/503 (quota, outage). JSON list in env.
     llm_fallback_models: list[str] = ["gemini-3-flash-preview", "gemini-3.5-flash-lite"]
     llm_concurrency: int = 4
+    # USD per million tokens, (input, output), keyed by model. Empty: usage is reported in
+    # tokens only — prices change and a stale default would report a confident wrong number.
+    llm_prices_per_mtok: dict[str, tuple[float, float]] = {}
 
     # Retrieval stack. `local` variants need the optional `sentence-transformers` extra.
     embedding_provider: Literal["gemini", "local"] = "gemini"

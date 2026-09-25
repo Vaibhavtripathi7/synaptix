@@ -37,6 +37,7 @@ class AnalysisOut(BaseModel):
     document_ids: list[uuid.UUID]
     status: RunStatus
     result: dict | None
+    usage: dict | None
     error: str | None
     created_at: datetime
     finished_at: datetime | None

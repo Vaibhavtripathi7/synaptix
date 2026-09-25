@@ -12,6 +12,7 @@ from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
 
 from app.api import analyses, documents, query
+from app.core import usage
 from app.core.logging import configure_logging
 from app.core.settings import get_settings
 from app.db.session import engine
@@ -39,7 +40,7 @@ app = FastAPI(title="Synaptix", version="0.1.0", lifespan=lifespan)
 @app.middleware("http")
 async def request_context(request: Request, call_next):
     """A request id on every log line (echoed to the client), the optional operator-key gate,
-    and one structured access-log line per API call."""
+    a token ledger for the request, and one structured access-log line per API call."""
     request_id = request.headers.get("x-request-id") or uuid.uuid4().hex[:12]
     structlog.contextvars.clear_contextvars()
     structlog.contextvars.bind_contextvars(request_id=request_id)
@@ -52,16 +53,19 @@ async def request_context(request: Request, call_next):
                 status_code=401,
                 headers={"x-request-id": request_id},
             )
+    ledger = usage.begin()
     started = time.perf_counter()
     response = await call_next(request)
     response.headers["x-request-id"] = request_id
     if is_api:
+        tokens = {"input_tokens": ledger.input_tokens, "output_tokens": ledger.output_tokens}
         log.info(
             "http",
             method=request.method,
             path=request.url.path,
             status=response.status_code,
             ms=round((time.perf_counter() - started) * 1000),
+            **(tokens if ledger.calls else {}),
         )
     return response
 

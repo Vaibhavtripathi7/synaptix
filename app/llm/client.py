@@ -12,6 +12,7 @@ from google import genai
 from google.genai import errors, types
 from pydantic import BaseModel
 
+from app.core import usage
 from app.core.settings import Settings
 
 T = TypeVar("T", bound=BaseModel)
@@ -83,15 +84,16 @@ class Gemini:
             thinking_config=None if think else types.ThinkingConfig(thinking_level="minimal"),
         )
 
-    async def _call(self, chain: list[str], call: Callable[[str], Awaitable[T]]) -> T:
-        """Runs `call(model)` down the chain. A per-minute rate limit is waited out once on the
-        same model (backpressure: the caller holds the concurrency slot while it waits); a daily
-        quota or an overloaded model fails over to the next entry."""
+    async def _call(self, chain: list[str], call: Callable[[str], Awaitable[T]]) -> tuple[str, T]:
+        """Runs `call(model)` down the chain and returns (the model that answered, its result).
+        A per-minute rate limit is waited out once on the same model (backpressure: the caller
+        holds the concurrency slot while it waits); a daily quota or an overloaded model fails
+        over to the next entry."""
         for i, model in enumerate(chain):
             waited = False
             while True:
                 try:
-                    return await call(model)
+                    return model, await call(model)
                 except errors.APIError as exc:
                     wait = _rate_limit_wait(exc) if exc.code == 429 else None
                     if wait and not waited:
@@ -105,14 +107,30 @@ class Gemini:
                     break
         raise AssertionError("unreachable")
 
+    @staticmethod
+    def _record(model: str, meta: types.GenerateContentResponseUsageMetadata | None) -> None:
+        """Adds one call's tokens to the current request's ledger."""
+        if meta is None:
+            return
+        counts = {
+            "input": meta.prompt_token_count or 0,
+            "output": meta.candidates_token_count or 0,
+            "thinking": meta.thoughts_token_count or 0,
+            "cached": meta.cached_content_token_count or 0,
+        }
+        if ledger := usage.current():
+            ledger.add(model, **counts)
+
     async def _generate(self, content: Content, config, strong: bool):
         async with self._sem:
-            return await self._call(
+            model, resp = await self._call(
                 self._chains[strong],
                 lambda m: self._client.aio.models.generate_content(
                     model=m, contents=content, config=config
                 ),
             )
+        self._record(model, resp.usage_metadata)
+        return resp
 
     async def generate(
         self,
@@ -164,11 +182,15 @@ class Gemini:
             return it, await anext(it, None)
 
         async with self._sem:
-            it, chunk = await self._call(self._chains[strong], open_stream)
+            model, (it, first) = await self._call(self._chains[strong], open_stream)
+            meta = None  # the final chunk carries the totals for the whole stream
+            chunk = first
             while chunk is not None:
+                meta = chunk.usage_metadata or meta
                 if chunk.text:
                     yield chunk.text
                 chunk = await anext(it, None)
+            self._record(model, meta)
 
     async def embed(self, texts: list[str], *, query: bool = False) -> list[list[float]]:
         """Embeds in batches of 64 (API cap is 100). Truncates to the configured dimension
@@ -181,10 +203,12 @@ class Gemini:
         for i in range(0, len(texts), 64):
             batch = texts[i : i + 64]
             async with self._sem:
-                resp = await self._call(
+                _, resp = await self._call(
                     [self._embedding_model], partial(self._embed_batch, batch, cfg)
                 )
             out.extend(e.values for e in resp.embeddings)
+        if ledger := usage.current():
+            ledger.embedded_texts += len(texts)
         return out
 
     def _embed_batch(self, batch: list[str], cfg: types.EmbedContentConfig, model: str):
