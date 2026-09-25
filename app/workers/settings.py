@@ -1,17 +1,21 @@
 """arq worker: `arq app.workers.settings.WorkerSettings`."""
 
+import asyncio
+import time
 import uuid
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime, timedelta
 
 import structlog
 from arq.connections import RedisSettings
+from prometheus_client import start_http_server
 from pydantic import SecretStr
 from sqlalchemy import update
 
 from app.analysis.pipeline import run_analysis
 from app.core import usage
 from app.core.logging import configure_logging
+from app.core.metrics import JOB_LATENCY, JOBS, QUEUE_DEPTH
 from app.core.settings import get_settings
 from app.db.models import DocStatus, Document
 from app.db.session import SessionLocal
@@ -48,16 +52,40 @@ async def startup(ctx: dict) -> None:
     settings = get_settings()
     # No model clients here: each job brings its user's key and gets that key's stack.
     ctx.update(settings=settings, storage=LocalStorage(settings.storage_dir))
+    start_http_server(settings.worker_metrics_port)
+    ctx["depth_poller"] = asyncio.create_task(_poll_queue_depth(ctx["redis"]))
     await reap_stranded()
+
+
+async def shutdown(ctx: dict) -> None:
+    ctx["depth_poller"].cancel()
+
+
+async def _poll_queue_depth(redis, every: float = 5.0) -> None:
+    """Queue depth is the autoscaling signal for workers, so export it continuously, not only
+    when a job happens to start."""
+    while True:
+        QUEUE_DEPTH.set(await redis.zcard("arq:queue"))
+        await asyncio.sleep(every)
 
 
 async def _run_job(name: str, work: Callable[[], Awaitable[None]]) -> None:
     structlog.contextvars.clear_contextvars()
     structlog.contextvars.bind_contextvars(job=name)
     ledger = usage.begin()
+    started = time.perf_counter()
     try:
         await work()
+    except asyncio.CancelledError:
+        JOBS.labels(name, "cancelled").inc()
+        raise
+    except Exception:
+        JOBS.labels(name, "failed").inc()
+        raise
+    else:
+        JOBS.labels(name, "ok").inc()
     finally:
+        JOB_LATENCY.labels(name).observe(time.perf_counter() - started)
         log.info("job.done", tokens_in=ledger.input_tokens, tokens_out=ledger.output_tokens)
 
 
@@ -86,6 +114,7 @@ async def analyze(ctx: dict, run_id: str, api_key: SecretStr | None = None) -> N
 class WorkerSettings:
     functions = [ingest, analyze]
     on_startup = startup
+    on_shutdown = shutdown
     redis_settings = RedisSettings.from_dsn(get_settings().redis_url)
     max_jobs = 2  # parsing is CPU-bound; LLM stages are bounded by llm_concurrency
     job_timeout = JOB_TIMEOUT

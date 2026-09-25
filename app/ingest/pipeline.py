@@ -2,12 +2,14 @@
 so the API can report progress; failure records the error and leaves the source PDF in place."""
 
 import asyncio
+import time
 import uuid
 
 import structlog
 from sqlalchemy import delete
 
 from app.core import usage
+from app.core.metrics import INGEST_STAGE
 from app.core.settings import Settings
 from app.db.models import Chunk, DocStatus, Document, Element, ElementKind, Section
 from app.db.session import SessionLocal
@@ -51,7 +53,13 @@ async def ingest_document(
 
 
 async def _run(session, doc: Document, storage, llm, embedder, settings: Settings) -> None:
+    clock = {"stage": None, "at": time.perf_counter()}
+
     async def stage(status: DocStatus) -> None:
+        now = time.perf_counter()
+        if clock["stage"] is not None:
+            INGEST_STAGE.labels(clock["stage"]).observe(now - clock["at"])
+        clock.update(stage=status.value, at=now)
         doc.status, doc.error = status, None
         await session.commit()
         log.info("ingest.stage", document_id=str(doc.id), stage=status.value)

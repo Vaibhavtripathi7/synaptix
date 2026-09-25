@@ -18,6 +18,7 @@ dependencies = [
     "google-genai>=1.0",
     "structlog>=24.1",
     "tiktoken>=0.7",
+    "prometheus-client>=0.26.0",
 ]
 
 [project.optional-dependencies]

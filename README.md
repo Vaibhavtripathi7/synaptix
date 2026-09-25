@@ -136,10 +136,13 @@ captioned keeps its caption text) instead of failing the document. Each request 
 
 ## Operating it
 
-**Token accounting.** Every answer reports the tokens it consumed, across expansion, reranking
-and generation, attributed to the model that actually served each call after failover; ingested
-documents and analysis runs record theirs. Set `SYNAPTIX_LLM_PRICES_PER_MTOK` to also report
-cost; there is no default, because a stale price would be a confident wrong number.
+**Observability.** Prometheus metrics on an internal port (API `:9100`, worker `:9101`), never
+the public one: model calls by model, operation and outcome (`ok`, `failover`, `rate_limited`,
+`error`) with latency; tokens by the model that actually served each call, after failover; job
+outcomes and durations; per-stage ingestion time; queue depth (the worker autoscaling signal).
+Every answer reports the tokens it consumed, and ingested documents and analysis runs record
+theirs. Set `SYNAPTIX_LLM_PRICES_PER_MTOK` to also report cost; there is no default, because a
+stale price would be a confident wrong number.
 
 ## Develop
 

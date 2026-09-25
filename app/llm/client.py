@@ -3,6 +3,7 @@
 import asyncio
 import json
 import re
+import time
 from collections.abc import AsyncIterator, Awaitable, Callable
 from functools import partial
 from typing import TypeVar
@@ -13,6 +14,7 @@ from google.genai import errors, types
 from pydantic import BaseModel
 
 from app.core import usage
+from app.core.metrics import LLM_CALLS, LLM_LATENCY, LLM_TOKENS
 from app.core.settings import Settings
 
 T = TypeVar("T", bound=BaseModel)
@@ -84,32 +86,42 @@ class Gemini:
             thinking_config=None if think else types.ThinkingConfig(thinking_level="minimal"),
         )
 
-    async def _call(self, chain: list[str], call: Callable[[str], Awaitable[T]]) -> tuple[str, T]:
+    async def _call(
+        self, chain: list[str], call: Callable[[str], Awaitable[T]], op: str
+    ) -> tuple[str, T]:
         """Runs `call(model)` down the chain and returns (the model that answered, its result).
         A per-minute rate limit is waited out once on the same model (backpressure: the caller
         holds the concurrency slot while it waits); a daily quota or an overloaded model fails
-        over to the next entry."""
+        over to the next entry. Every attempt is timed and counted by outcome."""
         for i, model in enumerate(chain):
             waited = False
             while True:
+                started = time.perf_counter()
                 try:
-                    return model, await call(model)
+                    result = await call(model)
                 except errors.APIError as exc:
+                    LLM_LATENCY.labels(model, op).observe(time.perf_counter() - started)
                     wait = _rate_limit_wait(exc) if exc.code == 429 else None
                     if wait and not waited:
+                        LLM_CALLS.labels(model, op, "rate_limited").inc()
                         log.info("llm.rate_limited", model=model, wait_s=wait)
                         await asyncio.sleep(wait)
                         waited = True
                         continue
                     if exc.code not in _FAILOVER_CODES or i == len(chain) - 1:
+                        LLM_CALLS.labels(model, op, "error").inc()
                         raise
+                    LLM_CALLS.labels(model, op, "failover").inc()
                     log.warning("llm.failover", model=model, code=exc.code, next=chain[i + 1])
                     break
+                LLM_LATENCY.labels(model, op).observe(time.perf_counter() - started)
+                LLM_CALLS.labels(model, op, "ok").inc()
+                return model, result
         raise AssertionError("unreachable")
 
     @staticmethod
     def _record(model: str, meta: types.GenerateContentResponseUsageMetadata | None) -> None:
-        """Adds one call's tokens to the current request's ledger."""
+        """Adds one call's tokens to the metrics and to the current request's ledger."""
         if meta is None:
             return
         counts = {
@@ -118,16 +130,20 @@ class Gemini:
             "thinking": meta.thoughts_token_count or 0,
             "cached": meta.cached_content_token_count or 0,
         }
+        for kind, n in counts.items():
+            if n:
+                LLM_TOKENS.labels(model, kind).inc(n)
         if ledger := usage.current():
             ledger.add(model, **counts)
 
-    async def _generate(self, content: Content, config, strong: bool):
+    async def _generate(self, content: Content, config, strong: bool, op: str):
         async with self._sem:
             model, resp = await self._call(
                 self._chains[strong],
                 lambda m: self._client.aio.models.generate_content(
                     model=m, contents=content, config=config
                 ),
+                op,
             )
         self._record(model, resp.usage_metadata)
         return resp
@@ -143,7 +159,7 @@ class Gemini:
         think: bool = False,
     ) -> str:
         config = self._config(system, temperature, max_tokens, None, think)
-        resp = await self._generate(content, config, strong)
+        resp = await self._generate(content, config, strong, "generate")
         return resp.text or ""
 
     async def generate_structured(
@@ -157,7 +173,7 @@ class Gemini:
         think: bool = False,
     ) -> T:
         config = self._config(system, temperature, None, schema, think)
-        resp = await self._generate(content, config, strong)
+        resp = await self._generate(content, config, strong, "structured")
         parsed = resp.parsed
         if isinstance(parsed, schema):
             return parsed
@@ -182,7 +198,7 @@ class Gemini:
             return it, await anext(it, None)
 
         async with self._sem:
-            model, (it, first) = await self._call(self._chains[strong], open_stream)
+            model, (it, first) = await self._call(self._chains[strong], open_stream, "stream")
             meta = None  # the final chunk carries the totals for the whole stream
             chunk = first
             while chunk is not None:
@@ -204,7 +220,7 @@ class Gemini:
             batch = texts[i : i + 64]
             async with self._sem:
                 _, resp = await self._call(
-                    [self._embedding_model], partial(self._embed_batch, batch, cfg)
+                    [self._embedding_model], partial(self._embed_batch, batch, cfg), "embed"
                 )
             out.extend(e.values for e in resp.embeddings)
         if ledger := usage.current():

@@ -25,6 +25,8 @@ class Settings(BaseSettings):
     # Comma-separated bearer keys accepted on /api/*. Empty (the default) leaves the API open,
     # which is only appropriate for local development.
     api_keys: str = ""
+    metrics_port: int = 9100  # API process; internal only
+    worker_metrics_port: int = 9101
 
     # Gemini: "vertex" uses ADC + project, "api_key" uses an AI Studio key
     gemini_backend: Literal["vertex", "api_key"] = "api_key"

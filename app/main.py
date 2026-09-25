@@ -9,6 +9,7 @@ from arq.connections import RedisSettings
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
+from prometheus_client import start_http_server
 from sqlalchemy import text
 
 from app.api import analyses, documents, query
@@ -29,6 +30,12 @@ async def lifespan(app: FastAPI):
     settings = get_settings()
     app.state.storage = LocalStorage(settings.storage_dir)
     app.state.queue = await create_pool(RedisSettings.from_dsn(settings.redis_url))
+    # Metrics on an internal port: scraped over the private network, never published. A busy
+    # port (a second local process) costs the metrics endpoint, not the service.
+    try:
+        start_http_server(settings.metrics_port)
+    except OSError as exc:
+        log.warning("metrics.unavailable", port=settings.metrics_port, error=str(exc))
     yield
     await app.state.queue.aclose()
     await engine.dispose()
