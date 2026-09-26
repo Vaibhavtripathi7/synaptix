@@ -147,8 +147,13 @@ a request's id follows the jobs it queues, so one id traces a request through th
 Set `SYNAPTIX_LLM_PRICES_PER_MTOK` to also report cost; there is no default, because a stale
 price would be a confident wrong number.
 
-**Capacity.** One replica serves ~280 authenticated reads/s and ~190 cached answers/s per core
-(`uv run python -m bench.run`).
+**Capacity.** One replica serves ~280 authenticated reads/s and ~190 cached answers/s per core;
+an uncached question costs ~17k input tokens and 10–20 s, 84% of it in reranking.
+[`docs/capacity.md`](docs/capacity.md) turns the measurements into a scaling plan — per-replica
+throughput, where each wall is, what changes at each order of magnitude and the metric that
+triggers it — including why a literal million uncached questions per second is out of reach for
+any design, and what the architecture does instead. `uv run python -m bench.run` reproduces the
+throughput numbers.
 
 **Protection.** Per-workspace token buckets (atomic Lua in Redis, on Redis's clock, so replicas
 enforce one limit) return `429 Retry-After`. Each replica caps model-backed requests in flight

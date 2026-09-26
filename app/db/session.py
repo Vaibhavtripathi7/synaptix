@@ -6,7 +6,7 @@ from app.core.settings import get_settings
 
 _settings = get_settings()
 
-# Pool tuning, each choice measured with bench/run.py:
+# Pool tuning, each choice measured (bench/run.py and the notes in docs/capacity.md):
 #
 # * `prepared_statement_cache_size=0` — asyncpg caches prepared statements per connection, and a
 #   migration applied while workers run invalidates them: every pooled connection then raises

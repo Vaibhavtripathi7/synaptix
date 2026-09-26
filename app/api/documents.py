@@ -116,7 +116,7 @@ async def upload(
 @router.get("", response_model=list[DocumentOut], dependencies=[ReadLimit])
 async def list_documents(workspace: WorkspaceDep, session: SessionDep) -> list:
     """Hot path — the UI polls it. Selects exactly the columns returned, as plain rows: building
-    ORM entities was the dominant per-request cost (measured with bench/run.py)."""
+    ORM entities was the dominant per-request cost (measured, docs/capacity.md)."""
     columns = [getattr(Document, name) for name in DocumentOut.model_fields]
     result = await session.execute(
         select(*columns)
