@@ -5,6 +5,7 @@ import pymupdf
 from fastapi import APIRouter, HTTPException, UploadFile, status
 from fastapi.responses import FileResponse
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import (
@@ -88,11 +89,27 @@ async def upload(
         doc.storage_key = f"{doc.id}/source.pdf"
         session.add(doc)
     doc.status, doc.error = DocStatus.queued, None
-    await session.commit()
-    await storage.put(doc.storage_key, data)
+    try:
+        await session.commit()
+    except IntegrityError:
+        # A concurrent upload of the same file into the same workspace won the insert: the
+        # unique (workspace, hash) constraint is the arbiter, so return the winner's row.
+        await session.rollback()
+        return await session.scalar(
+            select(Document).where(
+                Document.workspace_id == workspace, Document.content_hash == digest
+            )
+        )
+    await storage.put(doc.storage_key, data)  # after the commit: a lost race writes nothing
     # The key rides the job payload and is never written to Postgres. Redis runs without
     # persistence and the worker keeps no job results, so it is gone once the job finishes.
-    await queue.enqueue_job("ingest", str(doc.id), key, request_id=current_request_id())
+    await queue.enqueue_job(
+        "ingest",
+        str(doc.id),
+        key,
+        request_id=current_request_id(),
+        _job_id=f"ingest:{doc.id}",  # arq refuses a duplicate while one is queued or running
+    )
     return doc
 
 

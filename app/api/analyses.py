@@ -74,7 +74,9 @@ async def create(
     run = AnalysisRun(workspace_id=workspace, kind=body.kind, document_ids=body.document_ids)
     session.add(run)
     await session.commit()
-    await queue.enqueue_job("analyze", str(run.id), key, request_id=current_request_id())
+    await queue.enqueue_job(
+        "analyze", str(run.id), key, request_id=current_request_id(), _job_id=f"analyze:{run.id}"
+    )
     return run
 
 

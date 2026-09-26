@@ -101,6 +101,7 @@ async def test_the_users_key_travels_masked_and_is_never_stored(client, small_pd
 
     name, args, kwargs = client._transport.app.state.queue.jobs[-1]
     assert name == "ingest" and args[0] == doc["id"]
+    assert kwargs["_job_id"] == f"ingest:{doc['id']}", "job id is the idempotency key"
     assert isinstance(args[1], SecretStr) and args[1].get_secret_value() == SECRET
     assert SECRET not in repr(args), "arq logs job arguments"
     async with SessionLocal() as s:
@@ -108,6 +109,27 @@ async def test_the_users_key_travels_masked_and_is_never_stored(client, small_pd
             text("select row_to_json(d)::text from documents d where id = :id"), {"id": doc["id"]}
         )
     assert SECRET not in row
+
+
+async def test_concurrent_identical_uploads_converge_on_one_document(
+    client, small_pdf, monkeypatch
+):
+    """Every request checks "does it exist?" before inserting, so simultaneous uploads of one
+    file all see "no". The unique constraint decides the race; the losers must return the
+    winner's document, not a 500."""
+    import asyncio
+
+    monkeypatch.setitem(BUCKETS, "upload", (1.0, 100))  # this test is about the database race
+    headers = workspace()
+    responses = await asyncio.gather(*(_upload(client, headers, small_pdf) for _ in range(8)))
+    assert {r.status_code for r in responses} == {202}
+    assert len({r.json()["id"] for r in responses}) == 1
+    async with SessionLocal() as s:
+        wid = hashlib.sha256(headers["x-workspace"].encode()).hexdigest()
+        rows = await s.scalar(
+            text("select count(*) from documents where workspace_id = :w"), {"w": wid}
+        )
+    assert rows == 1
 
 
 async def test_tokens_are_required_long_and_stored_only_as_hashes(client, small_pdf):
