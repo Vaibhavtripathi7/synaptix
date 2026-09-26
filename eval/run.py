@@ -2,6 +2,7 @@
 
     uv run python -m eval.run              # retrieval metrics only: no generation calls
     uv run python -m eval.run --answers    # also generate answers and grade them with an LLM judge
+    uv run python -m eval.run --ablation   # dense vs BM25 vs hybrid vs reranked; eval/ablation.md
 
 Retrieval is scored with expansion off (embeddings plus the configured reranker), so it is cheap to
 run after every change to chunking, fusion or reranking. `hit@k` = an expected page appears in
@@ -12,6 +13,7 @@ import argparse
 import asyncio
 import json
 import statistics
+import time
 from pathlib import Path
 
 from pydantic import BaseModel, Field
@@ -107,7 +109,101 @@ async def main(answers: bool) -> None:
     await engine.dispose()
 
 
+VARIANTS = [
+    # name, dense, sparse, rerank as (candidates, characters per passage) or None
+    ("dense only", True, False, None),
+    ("BM25 only", False, True, None),
+    ("hybrid (RRF)", True, True, None),
+    ("hybrid + rerank, 40 × 1200 chars (production)", True, True, (40, 1200)),
+    ("hybrid + rerank, 20 × 600 chars", True, True, (20, 600)),
+]
+
+
+async def ablation(skip_rerank: bool = False) -> None:
+    """Scores every retrieval variant on the same golden set. Each question is embedded once
+    and the vector reused, so variants differ only in strategy. Expansion is off throughout:
+    this isolates fusion and reranking."""
+    from app.core import usage
+    from app.rag.answer import answerer_for
+    from app.retrieval.context import build_context
+    from app.retrieval.hybrid import hybrid_search
+    from app.retrieval.rerank import LLMReranker
+
+    settings = get_settings()
+    stack = answerer_for(None)
+    cases = [json.loads(line) for line in GOLDEN.read_text().splitlines() if line.strip()]
+    rows = []
+    async with SessionLocal() as session:
+        docs = {
+            d.filename: d.id
+            for d in await session.scalars(
+                select(Document).where(Document.status == DocStatus.ready)
+            )
+        }
+        cases = [c for c in cases if c["document"] in docs]
+        vectors = await stack.embedder.embed_documents([c["question"] for c in cases])
+        for name, dense, sparse, rerank in VARIANTS:
+            if rerank and skip_rerank:
+                continue
+            hit1 = hit = rr = tokens = 0.0
+            elapsed: list[float] = []
+            for case, vector in zip(cases, vectors, strict=True):
+                ledger = usage.begin()
+                started = time.perf_counter()
+                hits = await hybrid_search(
+                    session,
+                    [(case["question"], vector)],
+                    document_ids=[docs[case["document"]]],
+                    k=settings.retrieval_k,
+                    dense=dense,
+                    sparse=sparse,
+                )
+                await session.commit()
+                if rerank:
+                    candidates, chars = rerank
+                    hits = await LLMReranker(stack.llm, chars).rerank(
+                        case["question"], hits[:candidates], settings.rerank_top_n
+                    )
+                passages = build_context(hits[: settings.rerank_top_n], settings.context_tokens)
+                elapsed.append(time.perf_counter() - started)
+                ranks = [
+                    p.n
+                    for p in passages
+                    if any(p.page_start <= pg <= p.page_end for pg in case["pages"])
+                ]
+                hit += bool(ranks)
+                hit1 += bool(ranks) and ranks[0] == 1
+                rr += 1 / ranks[0] if ranks else 0.0
+                tokens += ledger.input_tokens
+            n = len(cases)
+            rows.append((name, hit1 / n, hit / n, rr / n, tokens / n, statistics.median(elapsed)))
+            print(
+                f"{name:48} hit@1 {hit1 / n:.2f}  hit@{settings.rerank_top_n} {hit / n:.2f}  "
+                f"MRR {rr / n:.2f}  tokens/q {tokens / n:7.0f}  p50 {rows[-1][5]:.2f}s",
+                flush=True,
+            )
+
+    k = settings.rerank_top_n
+    table = [
+        f"| variant | hit@1 | hit@{k} | MRR | input tokens / question | p50 latency |",
+        "|---|---:|---:|---:|---:|---:|",
+    ]
+    table += [
+        f"| {r[0]} | {r[1]:.2f} | {r[2]:.2f} | {r[3]:.2f} | {r[4]:,.0f} | {r[5]:.2f} s |"
+        for r in rows
+    ]
+    header = (
+        f"{len(cases)} questions over {len({c['document'] for c in cases})} documents "
+        f"(`eval/golden.jsonl`); query expansion off; `{settings.embedding_model}`.\n\n"
+    )
+    Path(__file__).with_name("ablation.md").write_text(header + "\n".join(table) + "\n")
+    await engine.dispose()
+
+
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--answers", action="store_true", help="generate and grade answers too")
-    asyncio.run(main(ap.parse_args().answers))
+    ap.add_argument("--ablation", action="store_true", help="compare retrieval strategies")
+    ap.add_argument("--skip-rerank", action="store_true", help="ablation without model calls")
+    args = ap.parse_args()
+    asyncio.run(ablation(args.skip_rerank) if args.ablation else main(args.answers))

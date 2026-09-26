@@ -6,3 +6,11 @@
 {"document": "1-s2.0-S2405535216300043-main.pdf", "question": "What is the DIRECT method and what is it used for?", "pages": [12], "terms": ["DIRECT"]}
 {"document": "1-s2.0-S2405535216300043-main.pdf", "question": "What does the paper conclude about choosing a routing algorithm?", "pages": [13, 14], "terms": ["requirements"]}
 {"document": "1-s2.0-S2405535216300043-main.pdf", "question": "Who are the authors and where are they affiliated?", "pages": [1], "terms": ["Fraunhofer"]}
+{"document": "Unit_2_-_Single_Phase_AC_Circuits.pdf", "question": "What is the RMS value of a sinusoidal voltage and how is it derived?", "pages": [18], "terms": ["rms"]}
+{"document": "Unit_2_-_Single_Phase_AC_Circuits.pdf", "question": "How is the average value of a sinusoidal waveform calculated?", "pages": [18, 19, 20, 21, 22], "terms": ["average"]}
+{"document": "Unit_2_-_Single_Phase_AC_Circuits.pdf", "question": "What is the condition for series resonance in an RLC circuit?", "pages": [22, 23, 24], "terms": ["resonance"]}
+{"document": "Unit_2_-_Single_Phase_AC_Circuits.pdf", "question": "How is the quality factor of a series resonant circuit defined?", "pages": [25, 26, 27], "terms": ["quality"]}
+{"document": "Unit_2_-_Single_Phase_AC_Circuits.pdf", "question": "What is the bandwidth of a resonant circuit and how does it relate to the half-power frequencies?", "pages": [27, 28, 29], "terms": ["bandwidth"]}
+{"document": "Unit_2_-_Single_Phase_AC_Circuits.pdf", "question": "How does parallel resonance differ from series resonance?", "pages": [29, 30, 31, 32], "terms": ["parallel"]}
+{"document": "Unit_2_-_Single_Phase_AC_Circuits.pdf", "question": "What is the general procedure to find the resonant frequency of any circuit?", "pages": [32, 33], "terms": ["resonant"]}
+{"document": "Unit_2_-_Single_Phase_AC_Circuits.pdf", "question": "Under what conditions can the phasors of two sinusoids be compared?", "pages": [1, 2], "terms": ["frequency"]}

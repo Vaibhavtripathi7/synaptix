@@ -170,6 +170,7 @@ make test                 # unit tests + DB-backed retrieval tests (skipped if P
 make lint                 # ruff
 uv run python -m eval.run            # retrieval metrics on eval/golden.jsonl (hit@k, MRR, terms)
 uv run python -m eval.run --answers  # also generate answers and grade faithfulness/correctness
+uv run python -m eval.run --ablation # dense vs BM25 vs hybrid vs reranked → eval/ablation.md
 uv run python -m bench.run           # per-replica throughput, CPU-pinned → bench/results.md
 uv sync --extra local     # adds sentence-transformers for local embeddings / reranking
 ```

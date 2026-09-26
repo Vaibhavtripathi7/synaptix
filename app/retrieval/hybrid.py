@@ -30,6 +30,8 @@ async def hybrid_search(
     *,
     document_ids: list[uuid.UUID],
     k: int,
+    dense: bool = True,
+    sparse: bool = True,
 ) -> list[Hit]:
     """Runs dense + sparse retrieval for every (text, vector) query variant and fuses all
     rankings with RRF. Returns the top-k fused hits, chunks loaded with their section.
@@ -60,8 +62,11 @@ async def hybrid_search(
     await session.execute(text("SET LOCAL hnsw.iterative_scan = strict_order"))
 
     for q_idx, (query_text, vector) in enumerate(queries):
-        ann = base.order_by(Chunk.embedding.cosine_distance(vector)).limit(k)
-        absorb(list(await session.scalars(ann)), q_idx, "dense_rank")
+        if dense:
+            ann = base.order_by(Chunk.embedding.cosine_distance(vector)).limit(k)
+            absorb(list(await session.scalars(ann)), q_idx, "dense_rank")
+        if not sparse:
+            continue
 
         tsq = func.websearch_to_tsquery("english", query_text)
         sparse = (
