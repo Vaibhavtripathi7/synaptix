@@ -16,6 +16,8 @@ class Settings(BaseSettings):
 
     # Infra (host ports are non-default on purpose so local services never collide)
     database_url: str = "postgresql+asyncpg://synaptix:synaptix@localhost:5433/synaptix"
+    db_pool_size: int = 20
+    db_max_overflow: int = 10
     redis_url: str = "redis://localhost:6380/0"  # job queue: must never evict
     cache_redis_url: str = "redis://localhost:6381/0"  # answer cache: allkeys-lru, may evict
     answer_cache_ttl_s: int = 86_400  # 0 disables the cache

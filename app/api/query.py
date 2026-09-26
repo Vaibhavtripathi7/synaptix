@@ -239,7 +239,8 @@ async def graph(
 ) -> dict:
     """Entity–relation graph of a ready document; cached until `refresh=true`."""
     doc = await _ready(session, workspace, document_id)
-    graph = doc.graph
+    # `graph` is a deferred column; async SQLAlchemy forbids the implicit load, so ask for it.
+    graph = await session.scalar(select(Document.graph).where(Document.id == doc.id))
     if graph is None or refresh:
         ticket = admission.enter()
         try:
