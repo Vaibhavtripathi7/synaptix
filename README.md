@@ -147,6 +147,9 @@ a request's id follows the jobs it queues, so one id traces a request through th
 Set `SYNAPTIX_LLM_PRICES_PER_MTOK` to also report cost; there is no default, because a stale
 price would be a confident wrong number.
 
+**Capacity.** One replica serves ~280 authenticated reads/s and ~190 cached answers/s per core
+(`uv run python -m bench.run`).
+
 **Protection.** Per-workspace token buckets (atomic Lua in Redis, on Redis's clock, so replicas
 enforce one limit) return `429 Retry-After`. Each replica caps model-backed requests in flight
 and refuses the excess with an immediate `503 Retry-After` instead of queueing. Identical
@@ -162,6 +165,7 @@ make test                 # unit tests + DB-backed retrieval tests (skipped if P
 make lint                 # ruff
 uv run python -m eval.run            # retrieval metrics on eval/golden.jsonl (hit@k, MRR, terms)
 uv run python -m eval.run --answers  # also generate answers and grade faithfulness/correctness
+uv run python -m bench.run           # per-replica throughput, CPU-pinned → bench/results.md
 uv sync --extra local     # adds sentence-transformers for local embeddings / reranking
 ```
 
