@@ -17,6 +17,8 @@ class Settings(BaseSettings):
     # Infra (host ports are non-default on purpose so local services never collide)
     database_url: str = "postgresql+asyncpg://synaptix:synaptix@localhost:5433/synaptix"
     redis_url: str = "redis://localhost:6380/0"  # job queue: must never evict
+    cache_redis_url: str = "redis://localhost:6381/0"  # answer cache: allkeys-lru, may evict
+    answer_cache_ttl_s: int = 86_400  # 0 disables the cache
     storage_dir: Path = Path("data/storage")  # source PDFs and extracted figures
     # Workspaces are anonymous, so these caps are what bound one visitor's disk and CPU use.
     max_upload_mb: int = 100

@@ -22,6 +22,7 @@ from app.db.session import SessionLocal
 from app.main import app
 from app.rag import answer as answer_module
 from app.rag.answer import Answerer
+from app.rag.cache import AnswerCache
 from app.retrieval.hybrid import hybrid_search
 from app.retrieval.rerank import LLMReranker
 from app.storage import LocalStorage
@@ -47,6 +48,7 @@ async def client(db, redis, tmp_path):
     app.state.queue = FakeQueue()
     app.state.limiter = RateLimiter(redis)
     app.state.admission = Admission(limit=64)
+    app.state.answer_cache = AnswerCache(redis, ttl_s=0)  # disabled: these tests are not about it
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://t") as c:
         yield c
     async with SessionLocal() as s:  # everything these tests uploaded

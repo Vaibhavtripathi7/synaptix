@@ -1,8 +1,8 @@
 .PHONY: infra infra-down migrate api worker worker-dev test lint fmt
 UV := uv run
 
-infra:        ## Postgres+pgvector :5433, queue Redis :6380
-	docker compose up -d db redis
+infra:        ## Postgres+pgvector :5433, queue Redis :6380, cache Redis :6381
+	docker compose up -d db redis cache
 infra-down:
 	docker compose down
 migrate:

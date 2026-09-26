@@ -1,6 +1,8 @@
+import asyncio
 import json
 import uuid
 from collections.abc import AsyncIterator
+from datetime import datetime
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
@@ -11,6 +13,7 @@ from starlette.background import BackgroundTask
 
 from app.api.deps import (
     AdmissionDep,
+    AnswerCacheDep,
     AnswererDep,
     ModelLimit,
     SessionDep,
@@ -21,6 +24,7 @@ from app.core import usage
 from app.db.models import Chunk, DocStatus, Document, Element, ElementKind
 from app.db.session import end_read
 from app.rag.answer import Style
+from app.rag.cache import cache_key
 from app.rag.graph import build_graph
 from app.rag.summarize import summarize_document
 from app.retrieval.context import Passage
@@ -59,22 +63,24 @@ class QueryResponse(BaseModel):
     queries: list[str]
     candidates: int
     usage: dict  # tokens this answer consumed, across expansion, reranking and generation
+    cached: bool = False  # served from the answer cache: no model was called
 
 
 async def _searchable(
     session: AsyncSession, workspace: str, requested: list[uuid.UUID] | None
-) -> list[uuid.UUID]:
-    """The documents a query may touch: the requested ones if all belong to the workspace,
-    otherwise every ready document in it. A foreign id is a 404, never silently dropped."""
-    stmt = select(Document.id).where(
+) -> dict[uuid.UUID, datetime]:
+    """The documents a query may touch, with their versions: the requested ones if all belong to
+    the workspace, otherwise every ready document in it. A foreign id is a 404, never silently
+    dropped."""
+    stmt = select(Document.id, Document.updated_at).where(
         Document.workspace_id == workspace, Document.status == DocStatus.ready
     )
     if requested:
         stmt = stmt.where(Document.id.in_(requested))
-    ids = list(await session.scalars(stmt))
-    if requested and len(ids) != len(set(requested)):
+    versions = dict((await session.execute(stmt)).all())
+    if requested and len(versions) != len(set(requested)):
         raise HTTPException(404, "one or more documents were not found or are not ready")
-    return ids
+    return versions
 
 
 async def _attach_images(session: AsyncSession, passages: list[PassageOut]) -> None:
@@ -107,41 +113,70 @@ async def query(
     workspace: WorkspaceDep,
     answerer: AnswererDep,
     admission: AdmissionDep,
+    cache: AnswerCacheDep,
     session: SessionDep,
 ):
     """Answer a question with citations. With `stream: true` the response is Server-Sent
-    Events: one `passages` event, then `token` events, then `done`."""
-    document_ids = await _searchable(session, workspace, body.document_ids)
-    if not document_ids:
+    Events: one `passages` event, then `token` events, then `done`.
+
+    The cache is consulted before admission, so a cached or coalesced answer never occupies one
+    of the replica's scarce model slots."""
+    versions = await _searchable(session, workspace, body.document_ids)
+    if not versions:
         raise HTTPException(404, "no ready documents to search in this workspace")
-    ticket = admission.enter()
+    await end_read(session)  # waits and model calls below must not hold locks
+    key = cache_key(workspace, versions, body.question, body.style, answerer.settings)
+
+    cached = await cache.get(key)
+    if cached is None and (leader := cache.follow(key)) is not None:
+        try:  # another request here is computing this exact answer: wait for it
+            cached = await asyncio.wait_for(asyncio.shield(leader), timeout=120)
+        except TimeoutError:
+            cached = None  # the leader is stuck; compute independently
+    if cached is not None:
+        return _serve_cached(cached, body.stream)
+
     try:
-        retrieval = await answerer.retrieve(session, body.question, document_ids)
+        ticket = admission.enter()
+    except BaseException:
+        cache.abandon(key)
+        raise
+    try:
+        retrieval = await answerer.retrieve(session, body.question, list(versions))
         if not retrieval.passages:
             raise HTTPException(404, "no indexed content matched; is the document ready?")
         passages = [PassageOut.from_passage(p) for p in retrieval.passages]
         await _attach_images(session, passages)
         await end_read(session)  # generation can take tens of seconds; hold no locks through it
+        payload = {
+            "passages": [p.model_dump(mode="json") for p in passages],
+            "queries": retrieval.queries,
+            "candidates": retrieval.candidates,
+        }
         if not body.stream:
-            answer = await answerer.answer(body.question, retrieval.passages, body.style)
-            return QueryResponse(
-                answer=answer,
-                passages=passages,
-                queries=retrieval.queries,
-                candidates=retrieval.candidates,
-                usage=usage.current().as_dict(),
-            )
+            payload["answer"] = await answerer.answer(body.question, retrieval.passages, body.style)
+            await cache.put(key, payload)
+            return QueryResponse(**payload, usage=usage.current().as_dict())
+    except BaseException:
+        cache.abandon(key)
+        raise
     finally:
         if not body.stream:
             ticket.release()
 
     async def events() -> AsyncIterator[str]:
+        tokens: list[str] = []
         try:
-            yield _sse("passages", [p.model_dump(mode="json") for p in passages])
+            yield _sse("passages", payload["passages"])
             async for token in answerer.stream(body.question, retrieval.passages, body.style):
+                tokens.append(token)
                 yield _sse("token", token)
+            await cache.put(key, payload | {"answer": "".join(tokens)})
             done = {"queries": retrieval.queries, "candidates": retrieval.candidates}
             yield _sse("done", done | {"usage": usage.current().as_dict()})
+        except BaseException:
+            cache.abandon(key)  # includes a client leaving mid-stream: never cache half an answer
+            raise
         finally:
             ticket.release()
 
@@ -150,6 +185,22 @@ async def query(
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache"},
         background=BackgroundTask(ticket.release),  # if the client left before streaming began
+    )
+
+
+def _serve_cached(cached: dict, stream: bool):
+    zero = usage.current().as_dict()
+    if not stream:
+        return QueryResponse(**cached, usage=zero, cached=True)
+
+    async def events() -> AsyncIterator[str]:
+        yield _sse("passages", cached["passages"])
+        yield _sse("token", cached["answer"])
+        done = {"queries": cached["queries"], "candidates": cached["candidates"]}
+        yield _sse("done", done | {"usage": zero, "cached": True})
+
+    return StreamingResponse(
+        events(), media_type="text/event-stream", headers={"Cache-Control": "no-cache"}
     )
 
 

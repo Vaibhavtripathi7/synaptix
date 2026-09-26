@@ -141,14 +141,19 @@ the public one. Request rate, latency and status by route *template* (bounded la
 path would create a time series per document id); model calls by model, operation and outcome
 (`ok`, `failover`, `rate_limited`, `error`) with latency; tokens by the model that actually
 served each call, after failover; job outcomes and durations; per-stage ingestion time; queue
-depth (the worker autoscaling signal). Every answer reports the tokens it consumed,
-ingested documents and analysis runs record theirs, and a request's id follows the jobs it queues, so one id traces a request through the worker's logs.
+depth (the worker autoscaling signal); answer-cache hits, misses and coalesced requests. Every
+answer reports the tokens it consumed, ingested documents and analysis runs record theirs, and
+a request's id follows the jobs it queues, so one id traces a request through the worker's logs.
 Set `SYNAPTIX_LLM_PRICES_PER_MTOK` to also report cost; there is no default, because a stale
 price would be a confident wrong number.
 
 **Protection.** Per-workspace token buckets (atomic Lua in Redis, on Redis's clock, so replicas
 enforce one limit) return `429 Retry-After`. Each replica caps model-backed requests in flight
-and refuses the excess with an immediate `503 Retry-After` instead of queueing.
+and refuses the excess with an immediate `503 Retry-After` instead of queueing. Identical
+concurrent questions collapse into one model call, and repeated ones are answered from a cache
+keyed on the documents' current versions, so it can never serve an answer from before a document
+changed. The cache fails open and lives in its own evicting Redis, apart from the job queue,
+which never evicts.
 
 ## Develop
 

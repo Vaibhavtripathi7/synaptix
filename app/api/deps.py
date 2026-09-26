@@ -10,6 +10,7 @@ from app.core.limits import Admission, RateLimiter
 from app.core.settings import Settings, get_settings
 from app.db.session import get_session
 from app.rag.answer import Answerer, MissingKeyError, answerer_for
+from app.rag.cache import AnswerCache
 from app.storage import LocalStorage
 
 
@@ -60,6 +61,10 @@ def _admission(request: Request) -> Admission:
     return request.app.state.admission
 
 
+def _answer_cache(request: Request) -> AnswerCache:
+    return request.app.state.answer_cache
+
+
 SettingsDep = Annotated[Settings, Depends(get_settings)]
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
 StorageDep = Annotated[LocalStorage, Depends(_storage)]
@@ -69,6 +74,7 @@ GeminiKeyDep = Annotated[SecretStr | None, Depends(_gemini_key)]
 # Resolving the answerer also proves a key is available, so jobs are never queued without one.
 AnswererDep = Annotated[Answerer, Depends(_answerer)]
 AdmissionDep = Annotated[Admission, Depends(_admission)]
+AnswerCacheDep = Annotated[AnswerCache, Depends(_answer_cache)]
 ModelLimit = _limit("model")
 UploadLimit = _limit("upload")
 ReadLimit = _limit("read")

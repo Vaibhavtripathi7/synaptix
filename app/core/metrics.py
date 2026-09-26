@@ -38,3 +38,8 @@ INGEST_STAGE = Histogram(
     "synaptix_ingest_stage_duration_seconds", "Time per ingestion stage", ["stage"], buckets=_SLOW
 )
 QUEUE_DEPTH = Gauge("synaptix_queue_depth", "Jobs waiting to be picked up")
+ANSWER_CACHE = Counter(
+    "synaptix_answer_cache_total",
+    "Answer lookups: hit, miss, or coalesced onto a leader",
+    ["result"],
+)
