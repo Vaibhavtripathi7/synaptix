@@ -1,0 +1,9 @@
+# The image needs pyproject.toml, uv.lock, app/, web/ and alembic.ini. Everything else stays out
+# of the build context: secrets (.env), the local virtualenv, sample data, and dev-only trees.
+*
+!pyproject.toml
+!uv.lock
+!alembic.ini
+!app/
+!web/
+**/__pycache__
