@@ -16,6 +16,10 @@ def _run_migrations(connection) -> None:
     with context.begin_transaction():
         # A DDL lock request queues every later query behind it: if a long transaction holds the
         # table, fail fast and retry the deploy rather than freeze the running app.
+        #
+        # This must run *inside* Alembic's transaction. Issued before it, the statement
+        # auto-begins a transaction that Alembic then treats as the caller's, never commits, and
+        # the connection closes with a rollback: every migration silently undone, exit code 0.
         connection.exec_driver_sql("SET LOCAL lock_timeout = '5s'")
         context.run_migrations()
 
