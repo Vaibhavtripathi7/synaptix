@@ -60,3 +60,17 @@ async def test_keyword_search_matches_questions_not_just_exact_term_sets(seeded)
     ranked = sorted((h for h in hits if h.sparse_rank), key=lambda h: h.sparse_rank)
     assert ranked, "no keyword hits for a question no single chunk fully contains"
     assert ranked[0].chunk.content.startswith("The isochrone method has drawbacks")
+
+
+async def test_search_with_several_query_variants(seeded):
+    """Query expansion sends three variants. A local once shadowed the `sparse` flag, so every
+    variant after the first crashed — only multi-variant searches exposed it."""
+    async with SessionLocal() as s:
+        variants = [
+            ("isochrone drawbacks", _vec(2)),
+            ("isochrone limits", _vec(1)),
+            ("grid", _vec(0)),
+        ]
+        hits = await hybrid_search(s, variants, document_ids=[seeded], k=10)
+    assert hits and all(h.queries for h in hits)
+    assert max(len(h.queries) for h in hits) > 1, "variants must fuse, not just run"

@@ -76,11 +76,11 @@ async def hybrid_search(
         tsq = cast(
             func.replace(cast(func.plainto_tsquery("english", query_text), Text), "&", "|"), TSQUERY
         )
-        sparse = (
+        keyword = (
             base.where(Chunk.tsv.op("@@")(tsq))
             .order_by(func.ts_rank_cd(Chunk.tsv, tsq).desc())
             .limit(k)
         )
-        absorb(list(await session.scalars(sparse)), q_idx, "sparse_rank")
+        absorb(list(await session.scalars(keyword)), q_idx, "sparse_rank")
 
     return sorted(fused.values(), key=lambda h: h.score, reverse=True)[:k]
