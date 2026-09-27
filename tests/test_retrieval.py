@@ -46,3 +46,17 @@ async def test_answerer_retrieve_with_stub_models(seeded):
     assert r.queries == ["isochrone drawbacks"]
     assert r.candidates == 3 and len(r.passages) == 1
     assert r.passages[0].n == 1
+
+
+async def test_keyword_search_matches_questions_not_just_exact_term_sets(seeded):
+    """A question's words are rarely all in one chunk. AND semantics made sparse retrieval
+    return nothing for natural-language questions (measured hit rate 0.19); it must rank chunks
+    that contain *some* of the terms."""
+    async with SessionLocal() as s:
+        question = "What are the drawbacks of the isochrone approach for weather routing?"
+        hits = await hybrid_search(
+            s, [(question, _vec(99))], document_ids=[seeded], k=10, dense=False
+        )
+    ranked = sorted((h for h in hits if h.sparse_rank), key=lambda h: h.sparse_rank)
+    assert ranked, "no keyword hits for a question no single chunk fully contains"
+    assert ranked[0].chunk.content.startswith("The isochrone method has drawbacks")

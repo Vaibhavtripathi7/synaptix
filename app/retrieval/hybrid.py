@@ -5,7 +5,8 @@ calibration between the two systems, which is why it is the standard choice here
 import uuid
 from dataclasses import dataclass, field
 
-from sqlalchemy import func, select, text
+from sqlalchemy import Text, cast, func, select, text
+from sqlalchemy.dialects.postgresql import TSQUERY
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -68,7 +69,13 @@ async def hybrid_search(
         if not sparse:
             continue
 
-        tsq = func.websearch_to_tsquery("english", query_text)
+        # OR, not AND. websearch_to_tsquery ANDs every term, so a natural-language question only
+        # matched chunks containing all of its words — measured: zero chunks for a typical
+        # question, sparse hit rate 0.19. Keyword retrieval wants BM25's behaviour: any term may
+        # match and ranking sorts it out, so the parsed terms are rejoined with |.
+        tsq = cast(
+            func.replace(cast(func.plainto_tsquery("english", query_text), Text), "&", "|"), TSQUERY
+        )
         sparse = (
             base.where(Chunk.tsv.op("@@")(tsq))
             .order_by(func.ts_rank_cd(Chunk.tsv, tsq).desc())

@@ -102,11 +102,13 @@ guarantee it covers and confirming the test fails.
 ### Retrieval, in one paragraph
 
 A question is paraphrased into two extra queries (grounded in the corpus titles), all three are
-embedded, and each runs a dense (pgvector cosine, HNSW) and a sparse (full-text, GIN) search.
-The six rankings are fused with reciprocal rank fusion, the top 40 are graded listwise by the
-LLM (or a local cross-encoder), and the best 8 become the context: a chunk is swapped for its
-whole section when that section is short or several hits share it. The answer cites `[n]`
-markers that map back to page ranges, heading paths and element kinds.
+embedded, and each runs a dense (pgvector cosine, HNSW) and a sparse (full-text, GIN) search —
+the sparse one with OR semantics, since an ablation showed the usual AND-of-all-terms query
+matching no chunk at all for a typical question. The six rankings are fused with
+reciprocal rank fusion, the top 40 are graded listwise by the LLM (or a local cross-encoder),
+and the best 8 become the context: a chunk is swapped for its whole section when that section
+is short or several hits share it. The answer cites `[n]` markers that map back to page ranges,
+heading paths and element kinds.
 
 ### Study guides and comparisons
 
