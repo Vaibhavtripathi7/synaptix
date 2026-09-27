@@ -1,4 +1,5 @@
 import random
+import socket
 import uuid
 
 import pymupdf
@@ -10,6 +11,20 @@ from app.db.models import Chunk, DocStatus, Document, ElementKind, Section
 from app.db.session import SessionLocal
 
 DIM = get_settings().embedding_dim
+
+
+@pytest.fixture(autouse=True)
+def _no_model_network(monkeypatch):
+    """Tests must never reach a paid model API: a stray call spends someone's real quota.
+    Resolving a Google API host fails the test, so a missing fake shows up as a failure."""
+    resolve = socket.getaddrinfo
+
+    def guarded_resolve(host, *args, **kwargs):
+        if isinstance(host, str) and host.rstrip(".").endswith("googleapis.com"):
+            raise RuntimeError(f"a test tried to reach {host}: model calls must be faked")
+        return resolve(host, *args, **kwargs)
+
+    monkeypatch.setattr(socket, "getaddrinfo", guarded_resolve)
 
 
 WORKSPACE = "a" * 64  # a workspace id (already hashed) for fixtures that bypass the API
