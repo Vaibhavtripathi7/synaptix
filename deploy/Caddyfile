@@ -1,0 +1,34 @@
+# Public entry point: automatic HTTPS, security headers, and load balancing across API replicas.
+{$DOMAIN} {
+	encode zstd gzip
+
+	request_body {
+		max_size 110MB  # the API caps uploads at 100 MB; refuse anything larger here, cheaply
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "no-referrer"
+		X-Frame-Options "DENY"
+		Permissions-Policy "camera=(), microphone=(), geolocation=()"
+		-Server
+	}
+
+	# The metrics ports are never published; this path does not exist publicly either.
+	respond /metrics* 404
+
+	reverse_proxy {
+		# Every API replica, discovered through Docker's DNS and refreshed, so scaling the
+		# `api` service needs no proxy change.
+		dynamic a {
+			name api
+			port 8000
+			refresh 10s
+		}
+		lb_policy least_conn
+		lb_try_duration 5s  # a replica that is down or restarting: try another
+		fail_duration 30s   # and stop sending it traffic for a while
+		flush_interval -1   # answers stream as Server-Sent Events; never buffer them
+	}
+}

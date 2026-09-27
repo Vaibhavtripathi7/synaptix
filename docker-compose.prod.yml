@@ -1,0 +1,82 @@
+# Production overlay for one VM. Only Caddy is reachable from outside; every other service lives
+# on the private compose network. Run from the repository root:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml --profile app up -d --build
+#
+# Sized for a 4-core / 24 GB machine (Oracle Cloud Always Free, Ampere A1): two API replicas
+# behind Caddy, one worker, Postgres tuned for the memory. Secrets come from `.env`; see
+# deploy/env.production.example.
+
+x-restart: &restart
+  restart: unless-stopped
+  logging:  # bounded logs: an unrotated json-file log eventually fills the disk
+    driver: json-file
+    options: { max-size: "20m", max-file: "5" }
+
+x-app-env: &app-env
+  SYNAPTIX_ENV: prod
+  SYNAPTIX_DATABASE_URL: postgresql+asyncpg://synaptix:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@db:5432/synaptix
+  # 3 app containers x (10 + 5) = 45 connections, well inside Postgres's 100.
+  SYNAPTIX_DB_POOL_SIZE: "10"
+  SYNAPTIX_DB_MAX_OVERFLOW: "5"
+
+services:
+  db:
+    <<: *restart
+    ports: !reset []
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    command:
+      - postgres
+      - -c
+      - shared_buffers=2GB
+      - -c
+      - effective_cache_size=8GB
+      - -c
+      - maintenance_work_mem=512MB  # HNSW index builds
+      - -c
+      - work_mem=16MB
+
+  redis:
+    <<: *restart
+    ports: !reset []
+
+  cache:
+    <<: *restart
+    ports: !reset []
+    command: ["redis-server", "--save", "", "--appendonly", "no",
+              "--maxmemory", "1gb", "--maxmemory-policy", "allkeys-lru"]
+
+  migrate:
+    environment: *app-env
+
+  api:
+    <<: *restart
+    ports: !reset []
+    environment:
+      <<: *app-env
+      SYNAPTIX_CACHE_REDIS_URL: redis://cache:6379/0
+      SYNAPTIX_LLM_WAIT_ON_RATE_LIMIT: "false"
+    deploy:
+      replicas: 2
+
+  worker:
+    <<: *restart
+    environment: *app-env
+
+  caddy:
+    <<: *restart
+    image: caddy:2-alpine
+    profiles: [app]
+    ports: ["80:80", "443:443", "443:443/udp"]
+    environment:
+      DOMAIN: ${DOMAIN:?set DOMAIN in .env}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data  # certificates: losing this means re-issuing and Let's Encrypt limits
+      - caddy-config:/config
+    depends_on: [api]
+
+volumes:
+  caddy-data:
+  caddy-config:

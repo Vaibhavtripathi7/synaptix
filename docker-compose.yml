@@ -44,6 +44,18 @@ services:
   # Application containers only start with `--profile app`; plain `docker compose up`
   # runs just the infra so you can develop against it from the host .venv.
 
+  # Migrations run once, here, before anything that needs the schema. Running them in each API
+  # container's entrypoint would have every replica migrate concurrently on deploy.
+  migrate:
+    build: .
+    profiles: [app]
+    env_file: .env
+    environment:
+      SYNAPTIX_DATABASE_URL: postgresql+asyncpg://synaptix:synaptix@db:5432/synaptix
+    depends_on:
+      db: { condition: service_healthy }
+    command: ["alembic", "upgrade", "head"]
+
   api:
     build: .
     profiles: [app]
@@ -56,10 +68,9 @@ services:
     ports: ["127.0.0.1:8000:8000"]
     volumes: [synaptix-storage:/app/data/storage]
     depends_on:
-      db: { condition: service_healthy }
+      migrate: { condition: service_completed_successfully }
       redis: { condition: service_healthy }
       cache: { condition: service_healthy }
-    command: ["sh", "-c", "alembic upgrade head && exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --no-access-log"]
 
   worker:
     build: .
@@ -70,7 +81,7 @@ services:
       SYNAPTIX_REDIS_URL: redis://redis:6379/0
     volumes: [synaptix-storage:/app/data/storage]
     depends_on:
-      api: { condition: service_started }
+      migrate: { condition: service_completed_successfully }
       redis: { condition: service_healthy }
     command: ["arq", "app.workers.settings.WorkerSettings"]
 
