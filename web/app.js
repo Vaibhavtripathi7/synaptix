@@ -391,8 +391,15 @@ $("tabs").onclick = (e) => {
   document.querySelectorAll(".tabs button").forEach((b) => b.classList.toggle("active", b === e.target));
   document.querySelectorAll(".tab").forEach((s) => s.classList.toggle("active", s.id === `tab-${tab}`));
 };
-// Markdown eats maths (`V_m \sin` turns into italics), so maths spans are lifted out before
-// marked runs and rendered back in with KaTeX afterwards.
+// Every piece of model- or document-derived HTML passes through here, so this is where untrusted
+// text becomes markup. Two hazards:
+//  * Markdown eats maths (`V_m \sin` turns into italics), so maths spans are lifted out first
+//    and rendered back in with KaTeX afterwards.
+//  * `marked` passes raw HTML through. A PDF can instruct the model to emit
+//    `<img onerror=...>`, and a script running here can read the user's Gemini key and workspace
+//    token. So the Markdown output is sanitised before the maths goes back in (KaTeX escapes its
+//    own input), and the server's Content-Security-Policy stops inline script and outbound
+//    requests even if something slipped past.
 const MATH_RE = [
   [/\$\$([\s\S]+?)\$\$/g, true],
   [/\\\[([\s\S]+?)\\\]/g, true],
@@ -405,7 +412,7 @@ function renderMarkdown(md) {
   for (const [re, display] of MATH_RE) {
     src = src.replace(re, (_, tex) => `MATHSPAN${spans.push({ tex, display }) - 1}ENDSPAN`);
   }
-  return marked.parse(src).replace(/MATHSPAN(\d+)ENDSPAN/g, (whole, i) => {
+  return DOMPurify.sanitize(marked.parse(src)).replace(/MATHSPAN(\d+)ENDSPAN/g, (whole, i) => {
     const span = spans[i];
     if (!span) return whole;
     try {

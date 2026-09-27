@@ -125,8 +125,10 @@ one machine stops being enough and what changes then.
 
 Only Caddy publishes ports (80, 443). Postgres, both Redis instances, the API replicas and the
 metrics endpoints are on the private compose network. Caddy adds HSTS, `nosniff`,
-`no-referrer` and frame denial. The server stores no user API keys (see *Hosting it for other
-people* in the README).
+`no-referrer`, frame denial, and a Content-Security-Policy that blocks inline script and any
+request to another origin — the browser holds each user's Gemini key and workspace token, and
+that policy is what keeps an injected script from sending them anywhere. The server stores no
+user API keys (see *Hosting it for other people* in the README).
 
 ## Troubleshooting
 
