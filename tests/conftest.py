@@ -1,3 +1,4 @@
+import ipaddress
 import random
 import socket
 import uuid
@@ -16,15 +17,41 @@ DIM = get_settings().embedding_dim
 @pytest.fixture(autouse=True)
 def _no_model_network(monkeypatch):
     """Tests must never reach a paid model API: a stray call spends someone's real quota.
-    Resolving a Google API host fails the test, so a missing fake shows up as a failure."""
-    resolve = socket.getaddrinfo
+
+    Two layers, because the first alone once let a request through — the SDK's HTTP stack
+    (httpx → httpcore → anyio) IDNA-encodes the hostname, so it arrives here as bytes:
+      1. resolving a Google API host fails the test, str or bytes;
+      2. connecting anywhere but loopback or a private network fails the test, whatever the
+         resolver, library or hostname. Tests only ever need the local Postgres and Redis."""
+    resolve, connect, connect_ex = (
+        socket.getaddrinfo,
+        socket.socket.connect,
+        socket.socket.connect_ex,
+    )
 
     def guarded_resolve(host, *args, **kwargs):
-        if isinstance(host, str) and host.rstrip(".").endswith("googleapis.com"):
-            raise RuntimeError(f"a test tried to reach {host}: model calls must be faked")
+        name = host.decode() if isinstance(host, bytes) else host
+        if isinstance(name, str) and name.rstrip(".").endswith("googleapis.com"):
+            raise RuntimeError(f"a test tried to reach {name}: model calls must be faked")
         return resolve(host, *args, **kwargs)
 
+    def check(address) -> None:
+        if isinstance(address, tuple) and address:
+            ip = ipaddress.ip_address(address[0])
+            if not (ip.is_loopback or ip.is_private):
+                raise RuntimeError(f"a test tried to connect to {ip}: model calls must be faked")
+
+    def guarded_connect(sock, address):
+        check(address)
+        return connect(sock, address)
+
+    def guarded_connect_ex(sock, address):
+        check(address)
+        return connect_ex(sock, address)
+
     monkeypatch.setattr(socket, "getaddrinfo", guarded_resolve)
+    monkeypatch.setattr(socket.socket, "connect", guarded_connect)
+    monkeypatch.setattr(socket.socket, "connect_ex", guarded_connect_ex)
 
 
 WORKSPACE = "a" * 64  # a workspace id (already hashed) for fixtures that bypass the API
