@@ -173,3 +173,28 @@ async def redis():
         pytest.skip("redis not reachable")
     yield pool
     await pool.aclose()
+
+
+@pytest.fixture
+def fake_gemini(monkeypatch):
+    """Every Gemini client built during the test talks to a FakeGemini, through the real SDK."""
+    import httpx
+    from google import genai
+
+    from app.llm import client as client_module
+    from app.rag import answer as answer_module
+    from tests.fake_gemini import FakeGemini
+
+    fake = FakeGemini(DIM)
+    real = genai.Client
+
+    def client(**kwargs):
+        transport = {"async_client_args": {"transport": httpx.MockTransport(fake.handle)}}
+        return real(
+            **kwargs | {"http_options": kwargs["http_options"].model_copy(update=transport)}
+        )
+
+    monkeypatch.setattr(client_module.genai, "Client", client)
+    answer_module.answerer_for.cache_clear()  # stacks cached before the patch would bypass it
+    yield fake
+    answer_module.answerer_for.cache_clear()
