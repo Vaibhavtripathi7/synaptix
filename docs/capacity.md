@@ -92,8 +92,11 @@ load balancer, workers scaled on `synaptix_queue_depth`.
 *Triggers for the next stage:* connections — each replica holds up to 30 (pool 20 + overflow
 10), so a fourth replica exceeds Postgres's default 100 — and **a second host**. On one machine
 source PDFs and figures can live on a local volume; across machines they cannot, because a
-worker cannot read a file another host received. Move them to object storage (S3, R2, GCS)
-before adding the second host; after that, no state lives on an API or worker host at all.
+worker cannot read a file another host received. `SYNAPTIX_STORAGE_BACKEND=s3` moves them to any
+S3-compatible store (S3, R2, GCS interop), after which no state lives on an API or worker host
+at all. The client is a small async S3 implementation over httpx with its own SigV4 signer,
+checked against AWS's published signatures and against a server that validates them; the
+viewer's ranged reads are passed through, so a 50 MB PDF is still fetched a page at a time.
 
 **~5,000 req/s.** pgbouncer in transaction mode in front of Postgres (already compatible: the
 statement cache is off). A read replica for retrieval queries. Size the cache Redis from the

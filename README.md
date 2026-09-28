@@ -29,6 +29,7 @@ browser (web/)  ──►  FastAPI (app/api)  ──►  Postgres 17 + pgvector 
 | LLM | Gemini via `google-genai` (Vertex or API key) | vision for figures/OCR, structured JSON output, streaming |
 | Embed | `gemini-embedding-001` @1024-d, or local `bge-m3` | Matryoshka truncation lets both share one column |
 | Rerank | listwise Gemini, or local `bge-reranker-v2-m3` | precision on top of RRF without a hosted reranking service |
+| Blobs | local volume, or any S3-compatible store | own async S3 client and SigV4 signer over httpx: no boto3; verified against AWS's test vectors and a validating server |
 | UI | static HTML/JS, pdf.js, vis-network | no build step, no framework; the page is the proof |
 
 ## Run

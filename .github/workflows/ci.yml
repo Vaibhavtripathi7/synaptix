@@ -24,6 +24,11 @@ jobs:
       - uses: astral-sh/setup-uv@v5
         with: { enable-cache: true }
       - run: uv sync --frozen
+      # S3-compatible server that validates SigV4, for the object-storage tests. A step rather than
+      # a service: service containers cannot pass it the `posix /data` arguments it needs.
+      - run: >
+          docker run -d --name s3 -p 9005:7070 --mount type=tmpfs,destination=/data
+          versity/versitygw:v1.8.0 --access synaptix --secret synaptix-dev-secret posix /data
       - run: uv run ruff check . && uv run ruff format --check .
       - run: uv run alembic upgrade head
       # A skipped test in CI means a backing service is missing, which must fail, not pass.

@@ -11,10 +11,10 @@ from app.core.settings import Settings, get_settings
 from app.db.session import get_session
 from app.rag.answer import Answerer, MissingKeyError, answerer_for
 from app.rag.cache import AnswerCache
-from app.storage import LocalStorage
+from app.storage import Storage
 
 
-def _storage(request: Request) -> LocalStorage:
+def _storage(request: Request) -> Storage:
     return request.app.state.storage
 
 
@@ -67,7 +67,7 @@ def _answer_cache(request: Request) -> AnswerCache:
 
 SettingsDep = Annotated[Settings, Depends(get_settings)]
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
-StorageDep = Annotated[LocalStorage, Depends(_storage)]
+StorageDep = Annotated[Storage, Depends(_storage)]
 QueueDep = Annotated[ArqRedis, Depends(_queue)]
 WorkspaceDep = Annotated[str, Depends(_workspace)]
 GeminiKeyDep = Annotated[SecretStr | None, Depends(_gemini_key)]

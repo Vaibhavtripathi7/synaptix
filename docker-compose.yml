@@ -41,6 +41,17 @@ services:
       timeout: 3s
       retries: 10
 
+  # S3-compatible object storage for development and tests (`--profile s3`): versitygw, which
+  # validates SigV4 signatures as S3 does, so a signing bug fails here rather than in production.
+  # (MinIO no longer publishes community images.) In production, point SYNAPTIX_S3_* at the real
+  # service — S3, R2, GCS interop — instead.
+  s3:
+    image: versity/versitygw:v1.8.0
+    profiles: [s3]
+    command: ["--access", "synaptix", "--secret", "synaptix-dev-secret", "posix", "/data"]
+    ports: ["127.0.0.1:9005:7070"]
+    volumes: [synaptix-s3:/data]
+
   # Application containers only start with `--profile app`; plain `docker compose up`
   # runs just the infra so you can develop against it from the host .venv.
 
@@ -88,3 +99,4 @@ services:
 volumes:
   synaptix-pgdata:
   synaptix-storage:
+  synaptix-s3:

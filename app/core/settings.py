@@ -21,7 +21,16 @@ class Settings(BaseSettings):
     redis_url: str = "redis://localhost:6380/0"  # job queue: must never evict
     cache_redis_url: str = "redis://localhost:6381/0"  # answer cache: allkeys-lru, may evict
     answer_cache_ttl_s: int = 86_400  # 0 disables the cache
-    storage_dir: Path = Path("data/storage")  # source PDFs and extracted figures
+    # Blob storage. `local` is a directory — fine while API and workers share a machine. `s3` is
+    # any S3-compatible service (AWS S3, Cloudflare R2, GCS interop, MinIO), needed once they
+    # don't. Path-style addressing: the endpoint plus the bucket name.
+    storage_backend: Literal["local", "s3"] = "local"
+    storage_dir: Path = Path("data/storage")
+    s3_endpoint_url: str = "http://localhost:9005"  # the `s3` service in docker-compose.yml
+    s3_bucket: str | None = None
+    s3_region: str = "us-east-1"
+    s3_access_key: str | None = None
+    s3_secret_key: SecretStr | None = None
     # Workspaces are anonymous, so these caps are what bound one visitor's disk and CPU use.
     max_upload_mb: int = 100
     max_pages: int = 500

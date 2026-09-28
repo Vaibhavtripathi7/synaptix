@@ -16,7 +16,7 @@ from app.core.middleware import RequestContext
 from app.core.settings import get_settings
 from app.db.session import engine
 from app.rag.cache import AnswerCache
-from app.storage import LocalStorage
+from app.storage import build_storage
 
 log = structlog.get_logger()
 
@@ -25,7 +25,7 @@ log = structlog.get_logger()
 async def lifespan(app: FastAPI):
     configure_logging()
     settings = get_settings()
-    app.state.storage = LocalStorage(settings.storage_dir)
+    app.state.storage = await build_storage(settings)
     app.state.queue = await create_pool(RedisSettings.from_dsn(settings.redis_url))
     app.state.limiter = RateLimiter(app.state.queue)
     app.state.admission = Admission(settings.max_inflight_model_requests)
@@ -39,6 +39,7 @@ async def lifespan(app: FastAPI):
         log.warning("metrics.unavailable", port=settings.metrics_port, error=str(exc))
     yield
     await app.state.queue.aclose()
+    await app.state.storage.close()
     await app.state.cache_redis.aclose()
     await engine.dispose()
 

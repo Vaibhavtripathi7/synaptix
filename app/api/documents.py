@@ -1,9 +1,10 @@
 import hashlib
+import re
 import uuid
 
 import pymupdf
-from fastapi import APIRouter, HTTPException, UploadFile, status
-from fastapi.responses import FileResponse
+from fastapi import APIRouter, HTTPException, Request, UploadFile, status
+from fastapi.responses import Response
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -26,6 +27,7 @@ from app.db.models import Chunk, DocStatus, Document, Element
 from app.db.session import end_read
 
 router = APIRouter(prefix="/documents", tags=["documents"])
+_FIGURE_NAME = re.compile(r"p\d+_\d+\.png")
 
 
 async def owned_document(session: AsyncSession, workspace: str, document_id: uuid.UUID) -> Document:
@@ -101,7 +103,9 @@ async def upload(
                 Document.workspace_id == workspace, Document.content_hash == digest
             )
         )
-    await storage.put(doc.storage_key, data)  # after the commit: a lost race writes nothing
+    await storage.put(
+        doc.storage_key, data, "application/pdf"
+    )  # after the commit: a lost race writes nothing
     # The key rides the job payload and is never written to Postgres. Redis runs without
     # persistence and the worker keeps no job results, so it is gone once the job finishes.
     await queue.enqueue_job(
@@ -136,16 +140,16 @@ async def get_document(
 
 @router.get("/{document_id}/file", dependencies=[ReadLimit])
 async def get_file(
-    document_id: uuid.UUID, workspace: WorkspaceDep, session: SessionDep, storage: StorageDep
-) -> FileResponse:
+    document_id: uuid.UUID,
+    request: Request,
+    workspace: WorkspaceDep,
+    session: SessionDep,
+    storage: StorageDep,
+) -> Response:
     doc = await owned_document(session, workspace, document_id)
     await end_read(session)  # streaming a large file must not hold a transaction
-    # FileResponse handles Range requests, so the viewer fetches pages as it needs them.
-    return FileResponse(
-        storage.path(doc.storage_key),
-        media_type="application/pdf",
-        filename=doc.filename,
-        content_disposition_type="inline",
+    return await storage.response(
+        doc.storage_key, "application/pdf", request.headers.get("range"), filename=doc.filename
     )
 
 
@@ -153,16 +157,20 @@ async def get_file(
 async def get_figure(
     document_id: uuid.UUID,
     name: str,
+    request: Request,
     workspace: WorkspaceDep,
     session: SessionDep,
     storage: StorageDep,
-) -> FileResponse:
+) -> Response:
+    # Figure names are always p<page>_<index>.png. Anything else — dot segments, encoded
+    # separators — could address another document's object once keys reach a bucket.
+    if not _FIGURE_NAME.fullmatch(name):
+        raise HTTPException(404, "figure not found")
     await owned_document(session, workspace, document_id)
     await end_read(session)
-    path = storage.path(f"{document_id}/figures/{name}")
-    if not path.is_file():
-        raise HTTPException(404, "figure not found")
-    return FileResponse(path, media_type="image/png")
+    return await storage.response(
+        f"{document_id}/figures/{name}", "image/png", request.headers.get("range")
+    )
 
 
 @router.get(

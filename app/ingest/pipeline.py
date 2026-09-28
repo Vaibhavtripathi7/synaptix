@@ -18,18 +18,13 @@ from app.ingest.enrich import enrich
 from app.ingest.parse import explode_scans, parse_pdf
 from app.llm.client import Gemini
 from app.llm.embeddings import Embedder
-from app.storage import LocalStorage
+from app.storage import Storage
 
 log = structlog.get_logger()
 
 
 async def ingest_document(
-    document_id: uuid.UUID,
-    *,
-    storage: LocalStorage,
-    llm: Gemini,
-    embedder: Embedder,
-    settings: Settings,
+    document_id: uuid.UUID, *, storage: Storage, llm: Gemini, embedder: Embedder, settings: Settings
 ) -> str | None:
     """Returns the workspace that gained a searchable document, so the caller can invalidate its
     cached answers once the change is committed; None if the document no longer exists."""
@@ -84,15 +79,25 @@ async def _run(session, doc: Document, storage, llm, embedder, settings: Setting
     vectors = await embedder.embed_documents([c.content for c in drafts])
 
     # Replace any previous extraction (re-ingest) in one transaction.
+    # Figures go to storage before the database writes begin: uploads are network I/O against
+    # object storage, and the replace-extraction transaction below must not stay open across it.
+    figure_keys = {
+        i: f"{doc.id}/figures/p{b.page}_{i}.png"
+        for i, b in enumerate(parsed.blocks)
+        if b.image_png is not None
+    }
+    await asyncio.gather(
+        *(storage.put(k, parsed.blocks[i].image_png, "image/png") for i, k in figure_keys.items())
+    )
+
     for model in (Chunk, Section, Element):
         await session.execute(delete(model).where(model.document_id == doc.id))
 
     elements: list[Element] = []
     for i, b in enumerate(parsed.blocks):
         meta = dict(b.meta, role=b.role)
-        if b.image_png is not None:
-            meta["image_key"] = f"{doc.id}/figures/p{b.page}_{i}.png"
-            await storage.put(meta["image_key"], b.image_png)
+        if i in figure_keys:
+            meta["image_key"] = figure_keys[i]
         elements.append(
             Element(
                 document_id=doc.id,

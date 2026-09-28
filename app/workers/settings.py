@@ -23,7 +23,7 @@ from app.db.session import SessionLocal
 from app.ingest.pipeline import ingest_document
 from app.rag.answer import answerer_for
 from app.rag.cache import invalidate_library
-from app.storage import LocalStorage
+from app.storage import build_storage
 
 log = structlog.get_logger()
 
@@ -55,7 +55,7 @@ async def startup(ctx: dict) -> None:
     # No model clients here: each job brings its user's key and gets that key's stack.
     ctx.update(
         settings=settings,
-        storage=LocalStorage(settings.storage_dir),
+        storage=await build_storage(settings),
         cache_redis=Redis.from_url(settings.cache_redis_url),  # to invalidate cached answers
     )
     start_http_server(settings.worker_metrics_port)
@@ -66,6 +66,7 @@ async def startup(ctx: dict) -> None:
 async def shutdown(ctx: dict) -> None:
     ctx["depth_poller"].cancel()
     await ctx["cache_redis"].aclose()
+    await ctx["storage"].close()
 
 
 async def _poll_queue_depth(redis, every: float = 5.0) -> None:

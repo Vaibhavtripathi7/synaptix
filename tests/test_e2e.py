@@ -241,3 +241,70 @@ async def test_a_document_becoming_ready_invalidates_cached_answers(api, redis, 
 
     await _ingest(api, small_pdf + b"\n% second copy\n")  # new bytes, new hash: a second document
     assert (await api.post("/api/v1/query", json=question)).json()["cached"] is False
+
+
+async def test_the_whole_pipeline_runs_on_object_storage(api, small_pdf):
+    """API and worker sharing no disk: the upload lands in the bucket, the worker reads it back
+    and writes figures there, the viewer's ranged reads stream from it, deletion empties it."""
+    from app.storage import S3Storage
+    from tests.conftest import s3_settings
+
+    store = S3Storage(s3_settings())
+    try:
+        await store.ensure_bucket()
+    except (httpx.HTTPError, RuntimeError):
+        await store.close()
+        pytest.skip("S3 test server not reachable (docker compose --profile s3 up -d s3)")
+    app.state.storage = store
+    try:
+        doc = await _ingest(api, small_pdf)
+        assert doc["status"] == "ready", doc["error"]
+        assert await store.get(f"{doc['id']}/source.pdf") == small_pdf
+
+        r = await api.get(f"/api/v1/documents/{doc['id']}/file", headers={"range": "bytes=0-7"})
+        assert r.status_code == 206 and r.content == small_pdf[:8]
+        async with SessionLocal() as s:
+            keys = list(
+                await s.scalars(
+                    select(Element.meta["image_key"].astext).where(
+                        Element.document_id == doc["id"], Element.meta.has_key("image_key")
+                    )
+                )
+            )
+        for key in keys:
+            fig = await api.get(f"/api/v1/documents/{doc['id']}/figures/{key.rsplit('/', 1)[-1]}")
+            assert fig.status_code == 200 and fig.content.startswith(b"\x89PNG")
+
+        assert (await api.delete(f"/api/v1/documents/{doc['id']}")).status_code == 204
+        with pytest.raises(FileNotFoundError):
+            await store.get(f"{doc['id']}/source.pdf")
+    finally:
+        await store.delete_prefix("")
+        await store.close()
+
+
+async def test_no_transaction_is_open_while_figures_upload(api, small_pdf, tmp_path):
+    """Figure uploads are network I/O against object storage; doing them inside the
+    replace-extraction transaction would hold its locks for every round trip."""
+    from app.storage import LocalStorage
+
+    open_during_put: list[int] = []
+
+    class Spy(LocalStorage):
+        async def put(self, key, data, content_type):
+            if "/figures/" in key:
+                async with SessionLocal() as s:
+                    n = await s.scalar(
+                        text(
+                            "select count(*) from pg_stat_activity where datname = "
+                            "current_database() and state like 'idle in transaction%'"
+                        )
+                    )
+                open_during_put.append(n)
+            await super().put(key, data, content_type)
+
+    app.state.storage = Spy(tmp_path / "spy")
+    doc = await _ingest(api, small_pdf)
+    assert doc["status"] == "ready"
+    assert open_during_put, "the fixture PDF must produce at least one figure for this test"
+    assert set(open_during_put) == {0}, f"transactions open during uploads: {open_during_put}"

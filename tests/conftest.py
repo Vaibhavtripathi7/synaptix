@@ -57,6 +57,20 @@ def _no_model_network(monkeypatch):
 WORKSPACE = "a" * 64  # a workspace id (already hashed) for fixtures that bypass the API
 
 
+def s3_settings(**overrides):
+    """Settings for the S3 test server in docker-compose.yml (`--profile s3`), fresh bucket."""
+    from pydantic import SecretStr
+
+    values = {
+        "storage_backend": "s3",
+        "s3_endpoint_url": "http://localhost:9005",
+        "s3_bucket": f"synaptix-test-{uuid.uuid4().hex[:6]}",
+        "s3_access_key": "synaptix",
+        "s3_secret_key": SecretStr("synaptix-dev-secret"),
+    }
+    return get_settings().model_copy(update=values | overrides)
+
+
 def vec(seed: int) -> list[float]:
     rng = random.Random(seed)
     return [rng.uniform(-1, 1) for _ in range(DIM)]
