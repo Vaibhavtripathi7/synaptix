@@ -11,6 +11,7 @@ from app.db.models import Document, Section
 from app.db.session import end_read
 from app.ingest.chunk import count_tokens
 from app.llm.client import Gemini
+from app.llm.untrusted import Fence
 
 _BATCH_TOKENS = 12_000
 _SYSTEM = (
@@ -42,6 +43,11 @@ class Graph(BaseModel):
     relations: list[Relation]
 
 
+def _extract(llm: Gemini, text: str):
+    fence = Fence()
+    return llm.generate_structured(fence.wrap(text, "sections"), Graph, system=_SYSTEM + fence.rule)
+
+
 async def build_graph(session: AsyncSession, doc: Document, llm: Gemini) -> dict:
     sections = list(
         await session.scalars(
@@ -60,9 +66,7 @@ async def build_graph(session: AsyncSession, doc: Document, llm: Gemini) -> dict
         batches[-1].append(text)
         spent += cost
 
-    parts = await asyncio.gather(
-        *(llm.generate_structured("\n\n".join(b), Graph, system=_SYSTEM) for b in batches if b)
-    )
+    parts = await asyncio.gather(*(_extract(llm, "\n\n".join(b)) for b in batches if b))
     pages = {s.order_idx: (s.page_start, s.page_end) for s in sections}
     nodes: dict[str, dict] = {}
     edges: dict[tuple[str, str, str], dict] = {}

@@ -21,6 +21,7 @@ from app.db.models import Document
 from app.db.session import end_read
 from app.llm.client import Gemini
 from app.llm.embeddings import Embedder, build_embedder
+from app.llm.untrusted import Fence
 from app.retrieval.context import Passage, build_context, render
 from app.retrieval.hybrid import Hit, hybrid_search
 from app.retrieval.rerank import Reranker, build_reranker
@@ -84,8 +85,14 @@ class Answerer:
             try:
                 titles = await self._titles(session, document_ids)
                 await end_read(session)
-                prompt = f"Documents being searched: {'; '.join(titles)}\n\nQuestion: {question}"
-                extra = await self.llm.generate_structured(prompt, _Queries, system=_EXPAND_SYSTEM)
+                fence = Fence()  # titles come from PDF metadata: attacker-controlled
+                prompt = (
+                    f"Documents being searched:\n{fence.wrap('; '.join(titles), 'titles')}\n\n"
+                    f"Question: {question}"
+                )
+                extra = await self.llm.generate_structured(
+                    prompt, _Queries, system=_EXPAND_SYSTEM + fence.rule
+                )
                 queries += [q for q in extra.queries[:2] if q and q != question]
             except Exception:  # expansion is an optimisation, never a dependency
                 pass
@@ -127,8 +134,9 @@ class Answerer:
     async def stream(
         self, question: str, passages: list[Passage], style: Style = "standard"
     ) -> AsyncIterator[str]:
-        prompt = f"Passages:\n\n{render(passages)}\n\nQuestion: {question}"
-        system = _ANSWER_SYSTEM + _STYLE[style]
+        fence = Fence()
+        prompt = f"Passages:\n\n{render(passages, fence)}\n\nQuestion: {question}"
+        system = _ANSWER_SYSTEM + _STYLE[style] + fence.rule
         async for token in self.llm.stream(prompt, system=system):
             yield token
 

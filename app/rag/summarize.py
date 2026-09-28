@@ -11,6 +11,7 @@ from app.db.models import Document, Section
 from app.db.session import end_read
 from app.ingest.chunk import count_tokens
 from app.llm.client import Gemini
+from app.llm.untrusted import Fence
 
 _BATCH_TOKENS = 12_000
 _MAP = (
@@ -22,6 +23,14 @@ _REDUCE = (
     "250 words: what the document is, its key content, and its main findings or conclusions. "
     "Use Markdown with a short lead paragraph followed by bullet points.\n\n"
 )
+
+
+def _fenced(llm: Gemini, instruction: str, text: str, label: str):
+    """Document text — and partial summaries written from it — goes to the model fenced."""
+    fence = Fence()
+    return llm.generate(
+        instruction + fence.wrap(text, label), system=fence.rule.strip(), think=True
+    )
 
 
 async def summarize_document(session: AsyncSession, doc: Document, llm: Gemini) -> str:
@@ -43,12 +52,12 @@ async def summarize_document(session: AsyncSession, doc: Document, llm: Gemini) 
         spent += cost
 
     partials = await asyncio.gather(
-        *(llm.generate(_MAP + "\n\n".join(b), think=True) for b in batches if b)
+        *(_fenced(llm, _MAP, "\n\n".join(b), "document part") for b in batches if b)
     )
     summary = (
         partials[0]
         if len(partials) == 1
-        else await llm.generate(_REDUCE + "\n\n---\n\n".join(partials), think=True)
+        else await _fenced(llm, _REDUCE, "\n\n---\n\n".join(partials), "partial summaries")
     )
     doc.summary = summary
     await session.commit()

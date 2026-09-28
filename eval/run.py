@@ -24,6 +24,7 @@ from app.db.models import DocStatus, Document
 from app.db.session import SessionLocal, engine
 from app.llm.client import Gemini
 from app.llm.embeddings import build_embedder
+from app.llm.untrusted import Fence
 from app.rag.answer import Answerer
 from app.retrieval.context import render
 from app.retrieval.rerank import build_reranker
@@ -83,8 +84,9 @@ async def main(answers: bool) -> None:
             )
             if answers:
                 answer = await answerer.answer(c["question"], r.passages)
+                fence = Fence()
                 grade = await llm.generate_structured(
-                    f"Passages:\n\n{render(r.passages)}\n\nQuestion: {c['question']}\n\n"
+                    f"Passages:\n\n{render(r.passages, fence)}\n\nQuestion: {c['question']}\n\n"
                     f"Answer:\n{answer}",
                     Grade,
                     system=JUDGE,

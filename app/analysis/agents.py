@@ -24,6 +24,7 @@ from app.analysis.schemas import PaperComparison, PracticeSet, StudyOutline
 from app.db.models import Chunk
 from app.db.session import end_read
 from app.ingest.chunk import count_tokens
+from app.llm.untrusted import Fence
 from app.rag.answer import Answerer
 from app.retrieval.context import Passage, build_context, render
 from app.retrieval.hybrid import Hit, hybrid_search
@@ -189,10 +190,11 @@ async def run_mapped_agent(
     batches = _batch(passages, _CONTEXT_TOKENS)
 
     async def one(batch: list[Passage]) -> BaseModel:
+        fence = Fence()
         return await answerer.llm.generate_structured(
-            _prompt(batch, inputs),
+            _prompt(fence, batch, inputs),
             agent.schema,
-            system=agent.system,
+            system=agent.system + fence.rule,
             strong=True,
             think=True,
         )
@@ -236,10 +238,11 @@ async def run_agent(
     inputs: dict[str, BaseModel] | None = None,
 ) -> tuple[BaseModel, list[Passage]]:
     passages = await gather_context(answerer, session, agent.facets, document_ids)
+    fence = Fence()
     result = await answerer.llm.generate_structured(
-        _prompt(passages, inputs),
+        _prompt(fence, passages, inputs),
         agent.schema,
-        system=agent.system,
+        system=agent.system + fence.rule,
         strong=True,
         think=True,
     )
@@ -251,16 +254,23 @@ async def compare(
 ) -> tuple[PaperComparison, list[Passage]]:
     a = await gather_context(answerer, session, COMPARISON_FACETS, [first])
     b = await gather_context(answerer, session, COMPARISON_FACETS, [second], start_at=len(a) + 1)
-    prompt = f"First document passages:\n\n{render(a)}\n\nSecond document passages:\n\n{render(b)}"
+    fence = Fence()
+    prompt = (
+        f"First document passages:\n\n{render(a, fence)}\n\n"
+        f"Second document passages:\n\n{render(b, fence)}"
+    )
     result = await answerer.llm.generate_structured(
-        prompt, PaperComparison, system=COMPARISON_SYSTEM, strong=True, think=True
+        prompt, PaperComparison, system=COMPARISON_SYSTEM + fence.rule, strong=True, think=True
     )
     return result, a + b
 
 
-def _prompt(passages: list[Passage], inputs: dict[str, BaseModel] | None) -> str:
+def _prompt(fence: Fence, passages: list[Passage], inputs: dict[str, BaseModel] | None) -> str:
+    """Earlier stages' output is fenced too: it was produced from document text, so an
+    injection could ride through it into the next stage."""
     parts = [
-        f"{name}:\n{model.model_dump_json(indent=1)}" for name, model in (inputs or {}).items()
+        f"{name}:\n{fence.wrap(model.model_dump_json(indent=1), name)}"
+        for name, model in (inputs or {}).items()
     ]
-    parts.append(f"Passages:\n\n{render(passages)}")
+    parts.append(f"Passages:\n\n{render(passages, fence)}")
     return "\n\n".join(parts)

@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 
 from app.core.settings import Settings
 from app.llm.client import Gemini
+from app.llm.untrusted import Fence
 from app.retrieval.hybrid import Hit
 
 _PASSAGE_CHARS = 1200  # enough to judge relevance; keeps the listwise prompt small
@@ -48,9 +49,12 @@ class LLMReranker:
     async def rerank(self, query: str, hits: list[Hit], top_n: int) -> list[Hit]:
         if len(hits) <= 1:
             return hits[:top_n]
-        listing = "\n\n".join(f"[{i}] {h.chunk.content[: self._chars]}" for i, h in enumerate(hits))
+        fence = Fence()
+        listing = "\n\n".join(
+            fence.wrap(h.chunk.content[: self._chars], f"passage [{i}]") for i, h in enumerate(hits)
+        )
         result = await self._llm.generate_structured(
-            f"Query: {query}\n\nPassages:\n\n{listing}", _Scores, system=self._SYSTEM
+            f"Query: {query}\n\nPassages:\n\n{listing}", _Scores, system=self._SYSTEM + fence.rule
         )
         graded = {s.index: s.relevance for s in result.scores if 0 <= s.index < len(hits)}
         for i, h in enumerate(hits):

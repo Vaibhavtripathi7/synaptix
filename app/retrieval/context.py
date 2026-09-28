@@ -10,6 +10,7 @@ from dataclasses import dataclass
 
 from app.db.models import ElementKind
 from app.ingest.chunk import count_tokens
+from app.llm.untrusted import Fence
 from app.retrieval.hybrid import Hit
 
 _EXPAND_UNDER_TOKENS = 1200  # a section this small is cheaper than losing its context
@@ -69,13 +70,16 @@ def build_context(hits: list[Hit], budget_tokens: int) -> list[Passage]:
     return passages
 
 
-def render(passages: list[Passage]) -> str:
-    """Numbered passages for a prompt, each headed with the source the answer will cite."""
+def render(passages: list[Passage], fence: Fence) -> str:
+    """Numbered passages for a prompt, each inside the call's fence: the text, the title and the
+    heading path all come from an uploaded document. The fence is a required argument, so no
+    caller can put document text into a prompt without it."""
     parts = []
     for p in passages:
         where = " > ".join(p.heading_path) or p.title
         pages = (
             f"p.{p.page_start}" if p.page_start == p.page_end else f"pp.{p.page_start}-{p.page_end}"
         )
-        parts.append(f"[{p.n}] {p.title} — {where} ({pages}, {p.kind.value})\n{p.text}")
+        label = f"passage [{p.n}]: {p.title}; {where}; {pages}; {p.kind.value}"
+        parts.append(fence.wrap(p.text, label))
     return "\n\n".join(parts)
