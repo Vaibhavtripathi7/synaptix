@@ -92,6 +92,10 @@ class Settings(BaseSettings):
 
     # Ingestion
     ocr_batch_pages: int = 6  # scanned pages per vision request; the main cost lever
+    # Each untrusted PDF is parsed in a child process under these limits. Measured peaks on the
+    # sample corpus: ~0.9 GB address space, ~110 CPU-seconds for a 33-page scanned deck.
+    parse_memory_mb: int = 1536
+    parse_timeout_s: int = 600
 
     # Chunking
     chunk_tokens: int = 400

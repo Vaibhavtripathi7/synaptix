@@ -15,7 +15,8 @@ from app.db.models import Chunk, DocStatus, Document, Element, ElementKind, Sect
 from app.db.session import SessionLocal
 from app.ingest.chunk import build_sections, chunk_sections
 from app.ingest.enrich import enrich
-from app.ingest.parse import explode_scans, parse_pdf
+from app.ingest.parse import explode_scans
+from app.ingest.sandbox import parse_isolated
 from app.llm.client import Gemini
 from app.llm.embeddings import Embedder
 from app.storage import Storage
@@ -63,7 +64,11 @@ async def _run(session, doc: Document, storage, llm, embedder, settings: Setting
         log.info("ingest.stage", document_id=str(doc.id), stage=status.value)
 
     await stage(DocStatus.parsing)
-    parsed = await asyncio.to_thread(parse_pdf, await storage.get(doc.storage_key))
+    parsed = await parse_isolated(
+        await storage.get(doc.storage_key),
+        memory_mb=settings.parse_memory_mb,
+        timeout_s=settings.parse_timeout_s,
+    )
     doc.title, doc.page_count = parsed.title or doc.filename, parsed.page_count
 
     await stage(DocStatus.enriching)
