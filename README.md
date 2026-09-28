@@ -155,6 +155,15 @@ a request's id follows the jobs it queues, so one id traces a request through th
 Set `SYNAPTIX_LLM_PRICES_PER_MTOK` to also report cost; there is no default, because a stale
 price would be a confident wrong number.
 
+`make stack` runs the whole system with Prometheus (`localhost:9090`) and Grafana
+(`localhost:3000`, dashboard provisioned). Prometheus discovers every API replica and worker
+through Docker's DNS, so scaling needs no config change. The dashboard reads top-down the way an
+incident is debugged: traffic, errors and tail latency; then routes, status codes and the answer
+cache; then model calls, latency and tokens; then jobs and ingestion stages. Nine alert rules
+each name the action to take, and are unit-tested with `promtool` against synthetic series in
+both directions — they fire on their condition and stay quiet otherwise (`make alerts-test`, also
+in CI).
+
 **Capacity.** One replica serves ~250–280 authenticated reads/s and ~280 cached answers/s per core;
 an uncached question costs ~17k input tokens and 10–20 s, 84% of it in reranking.
 [`docs/capacity.md`](docs/capacity.md) turns the measurements into a scaling plan — per-replica

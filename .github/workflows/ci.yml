@@ -41,3 +41,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: docker build -t synaptix:ci .
+
+  observability:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Alert rules are code: validated, and unit-tested against synthetic series both ways.
+      - run: >
+          docker run --rm -v "$PWD/deploy/observability:/cfg:ro" --entrypoint promtool
+          prom/prometheus:v3.15.0 check rules /cfg/alerts.yml
+      - run: >
+          docker run --rm -v "$PWD/deploy/observability:/cfg:ro" --entrypoint promtool
+          prom/prometheus:v3.15.0 test rules /cfg/alerts_test.yml
+      - run: python3 -m json.tool deploy/observability/grafana/dashboards/synaptix.json > /dev/null

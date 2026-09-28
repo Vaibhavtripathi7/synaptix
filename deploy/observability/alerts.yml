@@ -1,0 +1,87 @@
+# Alerts, each tied to an action. An alert that does not say what to do gets ignored, so every
+# rule states the response in its `action` annotation.
+groups:
+  - name: synaptix-availability
+    rules:
+      - alert: TargetDown
+        expr: up == 0
+        for: 2m
+        labels: { severity: page }
+        annotations:
+          summary: "{{ $labels.job }} {{ $labels.instance }} is not reporting metrics"
+          action: "Check the container: `docker compose ps` and its logs. A replica that stays down no longer takes traffic, so capacity is reduced."
+
+      - alert: HighErrorRatio
+        expr: |
+          sum(rate(synaptix_http_requests_total{status=~"5.."}[5m]))
+            / sum(rate(synaptix_http_requests_total[5m])) > 0.05
+        for: 5m
+        labels: { severity: page }
+        annotations:
+          summary: "More than 5% of requests fail with a server error"
+          action: "Group the 5xx by route in the dashboard, then read that route's JSON logs; every line of a failing request shares its request_id."
+
+      - alert: LoadShedding
+        expr: sum(rate(synaptix_http_requests_total{status="503"}[5m])) > 0
+        for: 5m
+        labels: { severity: warn }
+        annotations:
+          summary: "API replicas are refusing model-backed requests: at their in-flight cap"
+          action: "Add API replicas, or raise SYNAPTIX_MAX_INFLIGHT_MODEL_REQUESTS if memory allows (the work is I/O-bound)."
+
+      - alert: SlowReads
+        expr: |
+          histogram_quantile(0.99, sum by (le) (
+            rate(synaptix_http_request_duration_seconds_bucket{route!~".*(query|summary|graph)"}[5m])
+          )) > 1
+        for: 10m
+        labels: { severity: warn }
+        annotations:
+          summary: "p99 of non-model requests is above one second"
+          action: "Reads are database- or CPU-bound: check Postgres load and replica CPU; see docs/capacity.md for the next scaling step."
+
+  - name: synaptix-model
+    rules:
+      - alert: ModelErrors
+        expr: sum by (model) (rate(synaptix_llm_calls_total{outcome="error"}[10m])) > 0.05
+        for: 10m
+        labels: { severity: warn }
+        annotations:
+          summary: "Calls to {{ $labels.model }} are failing after failover"
+          action: "Every model in the chain is refusing. Check the provider's status and the error text in the logs; users see failed answers and degraded ingestion."
+
+      - alert: ModelQuotaPressure
+        expr: |
+          sum(rate(synaptix_llm_calls_total{outcome=~"failover|rate_limited"}[15m]))
+            / sum(rate(synaptix_llm_calls_total[15m])) > 0.2
+        for: 15m
+        labels: { severity: info }
+        annotations:
+          summary: "One in five model calls hits a quota or an overloaded model"
+          action: "The chain is running on fallbacks. Expect slower answers; with bring-your-own-key this is usually one user's quota."
+
+  - name: synaptix-background
+    rules:
+      - alert: QueueBacklog
+        expr: max(synaptix_queue_depth) > 20
+        for: 10m
+        labels: { severity: warn }
+        annotations:
+          summary: "{{ $value }} jobs have been waiting for over ten minutes"
+          action: "Add worker replicas; queue depth is the scaling signal for workers."
+
+      - alert: JobFailures
+        expr: sum by (job) (increase(synaptix_jobs_total{outcome=~"failed|cancelled"}[15m])) > 3
+        for: 5m
+        labels: { severity: warn }
+        annotations:
+          summary: "{{ $labels.job }} jobs are failing"
+          action: "Read the worker logs for job.failed; the document or analysis row carries the error the user sees."
+
+      - alert: CacheInvalidationFailing
+        expr: sum(increase(synaptix_answer_cache_total{result="invalidation_failed"}[5m])) > 0
+        for: 1m
+        labels: { severity: warn }
+        annotations:
+          summary: "The answer cache could not be invalidated after a document changed"
+          action: "Check the cache Redis. Until it recovers, answers may predate a change for up to ten minutes (the library-version expiry)."

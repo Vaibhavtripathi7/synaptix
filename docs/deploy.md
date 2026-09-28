@@ -117,6 +117,17 @@ Dumps are kept 14 days in `~/backups`. Copy them off the machine now and then: a
 same disk does not survive losing the disk. Restore with
 `docker compose ... exec -T db pg_restore -U synaptix -d synaptix --clean < <file>.dump`.
 
+**Metrics and dashboards** — set `GRAFANA_ADMIN_PASSWORD` in `.env`, then start the stack with
+the observability profile as well:
+```sh
+docker compose -f docker-compose.yml -f docker-compose.prod.yml \
+  --profile app --profile observability up -d
+```
+Prometheus and Grafana listen on the server's localhost only, never publicly. From your machine,
+tunnel to them: `ssh -L 3000:localhost:3000 -L 9090:localhost:9090 ubuntu@<public-ip>`, then open
+`http://localhost:3000` (dashboard *Synaptix*) or `http://localhost:9090/alerts`. Prometheus
+finds every API replica and the worker on its own; nothing to configure when you scale.
+
 **Scale** — `deploy.replicas` of `api` in `docker-compose.prod.yml`; Caddy discovers replicas
 through Docker's DNS, so no proxy change is needed. See [`capacity.md`](capacity.md) for when
 one machine stops being enough and what changes then.

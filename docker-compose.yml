@@ -52,6 +52,38 @@ services:
     ports: ["127.0.0.1:9005:7070"]
     volumes: [synaptix-s3:/data]
 
+  # Metrics and dashboards (`--profile observability`). Prometheus finds every API replica and
+  # worker through Docker's DNS; Grafana starts with the Synaptix dashboard provisioned. Both
+  # listen on localhost only: on a server, reach them through an SSH tunnel.
+  prometheus:
+    image: prom/prometheus:v3.15.0
+    profiles: [observability]
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.retention.time=15d
+      - --storage.tsdb.retention.size=2GB  # bounded: a metrics store must not fill the disk
+    volumes:
+      - ./deploy/observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./deploy/observability/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - synaptix-prometheus:/prometheus
+    ports: ["127.0.0.1:9090:9090"]
+
+  grafana:
+    image: grafana/grafana:13.2.2
+    profiles: [observability]
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}  # dev default; set it anywhere real
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /etc/grafana/dashboards/synaptix.json
+    volumes:
+      - ./deploy/observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./deploy/observability/grafana/dashboards:/etc/grafana/dashboards:ro
+      - synaptix-grafana:/var/lib/grafana
+    ports: ["127.0.0.1:3000:3000"]
+    depends_on: [prometheus]
+
   # Application containers only start with `--profile app`; plain `docker compose up`
   # runs just the infra so you can develop against it from the host .venv.
 
@@ -100,3 +132,5 @@ volumes:
   synaptix-pgdata:
   synaptix-storage:
   synaptix-s3:
+  synaptix-prometheus:
+  synaptix-grafana:

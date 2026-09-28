@@ -1,10 +1,13 @@
-.PHONY: infra infra-down migrate api worker worker-dev test lint fmt
+.PHONY: infra infra-down stack migrate api worker worker-dev test alerts-test lint fmt
 UV := uv run
+PROMTOOL := docker run --rm -v "$(CURDIR)/deploy/observability:/cfg:ro" --entrypoint promtool prom/prometheus:v3.15.0
 
 infra:        ## Postgres+pgvector :5433, queue Redis :6380, cache Redis :6381, S3 :9005
 	docker compose --profile s3 up -d db redis cache s3
 infra-down:
 	docker compose down
+stack:        ## everything in containers, plus Prometheus :9090 and Grafana :3000
+	docker compose --profile app --profile observability up -d --build
 migrate:
 	$(UV) alembic upgrade head
 api:
@@ -15,6 +18,8 @@ worker-dev:   ## reloads on code change; cancels any in-flight job, so not for r
 	$(UV) watchfiles --filter python "arq app.workers.settings.WorkerSettings" app
 test:
 	$(UV) pytest -q
+alerts-test:  ## validate the alert rules and run their unit tests
+	$(PROMTOOL) check rules /cfg/alerts.yml && $(PROMTOOL) test rules /cfg/alerts_test.yml
 lint:
 	$(UV) ruff check . && $(UV) ruff format --check .
 fmt:

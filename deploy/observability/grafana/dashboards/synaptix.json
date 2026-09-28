@@ -1,0 +1,144 @@
+{
+  "uid": "synaptix-overview",
+  "title": "Synaptix",
+  "description": "Traffic, errors and latency first; then the model path (calls, tokens, latency); then background work. Latency histograms measure time to response headers, so streamed answers count once their first byte is ready.",
+  "tags": ["synaptix"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "10s",
+  "time": { "from": "now-1h", "to": "now" },
+  "panels": [
+    {
+      "type": "stat", "title": "Requests / s", "gridPos": { "h": 4, "w": 4, "x": 0, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "refId": "A", "expr": "sum(rate(synaptix_http_requests_total[5m]))" }],
+      "fieldConfig": { "defaults": { "unit": "reqps", "decimals": 1 } },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "none", "graphMode": "area" }
+    },
+    {
+      "type": "stat", "title": "Server errors", "gridPos": { "h": 4, "w": 4, "x": 4, "y": 0 },
+      "description": "Share of requests answered 5xx. Alerts above 5% for five minutes.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "refId": "A", "expr": "(sum(rate(synaptix_http_requests_total{status=~\"5..\"}[5m])) or vector(0)) / sum(rate(synaptix_http_requests_total[5m]))" }],
+      "fieldConfig": { "defaults": { "unit": "percentunit", "decimals": 2, "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 0.01 }, { "color": "red", "value": 0.05 }] } } },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "none" }
+    },
+    {
+      "type": "stat", "title": "p99 latency, reads", "gridPos": { "h": 4, "w": 4, "x": 8, "y": 0 },
+      "description": "Every route except the model-backed ones (query, summary, graph).",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "refId": "A", "expr": "histogram_quantile(0.99, sum by (le) (rate(synaptix_http_request_duration_seconds_bucket{route!~\".*(query|summary|graph)\"}[5m])))" }],
+      "fieldConfig": { "defaults": { "unit": "s", "decimals": 3, "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 0.5 }, { "color": "red", "value": 1 }] } } },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "none" }
+    },
+    {
+      "type": "stat", "title": "Answer cache hit ratio", "gridPos": { "h": 4, "w": 4, "x": 12, "y": 0 },
+      "description": "Hits over hits plus misses. Coalesced requests (waited on an identical in-flight question) are excluded.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "refId": "A", "expr": "sum(rate(synaptix_answer_cache_total{result=\"hit\"}[15m])) / sum(rate(synaptix_answer_cache_total{result=~\"hit|miss\"}[15m]))" }],
+      "fieldConfig": { "defaults": { "unit": "percentunit", "decimals": 1 } },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "none", "graphMode": "none" }
+    },
+    {
+      "type": "stat", "title": "Queue depth", "gridPos": { "h": 4, "w": 4, "x": 16, "y": 0 },
+      "description": "Jobs waiting for a worker: the worker scaling signal.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "refId": "A", "expr": "max(synaptix_queue_depth)" }],
+      "fieldConfig": { "defaults": { "unit": "none", "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 10 }, { "color": "red", "value": 20 }] } } },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "area" }
+    },
+    {
+      "type": "stat", "title": "In flight", "gridPos": { "h": 4, "w": 4, "x": 20, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "refId": "A", "expr": "sum(synaptix_http_in_flight)" }],
+      "fieldConfig": { "defaults": { "unit": "none" } },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "none", "graphMode": "area" }
+    },
+    {
+      "type": "timeseries", "title": "Requests by route", "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "refId": "A", "expr": "sum by (route) (rate(synaptix_http_requests_total[5m]))", "legendFormat": "{{route}}" }],
+      "fieldConfig": { "defaults": { "unit": "reqps" } },
+      "options": { "legend": { "displayMode": "table", "placement": "right", "calcs": ["lastNotNull"] } }
+    },
+    {
+      "type": "timeseries", "title": "Latency, reads", "gridPos": { "h": 8, "w": 12, "x": 12, "y": 4 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "refId": "A", "expr": "histogram_quantile(0.50, sum by (le) (rate(synaptix_http_request_duration_seconds_bucket{route!~\".*(query|summary|graph)\"}[5m])))", "legendFormat": "p50" },
+        { "refId": "B", "expr": "histogram_quantile(0.95, sum by (le) (rate(synaptix_http_request_duration_seconds_bucket{route!~\".*(query|summary|graph)\"}[5m])))", "legendFormat": "p95" },
+        { "refId": "C", "expr": "histogram_quantile(0.99, sum by (le) (rate(synaptix_http_request_duration_seconds_bucket{route!~\".*(query|summary|graph)\"}[5m])))", "legendFormat": "p99" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "s" } },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" } }
+    },
+    {
+      "type": "timeseries", "title": "Responses by status", "gridPos": { "h": 8, "w": 12, "x": 0, "y": 12 },
+      "description": "429 is a workspace over its rate limit (its problem); 503 is a replica shedding load (ours: scale out).",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "refId": "A", "expr": "sum by (status) (rate(synaptix_http_requests_total[5m]))", "legendFormat": "{{status}}" }],
+      "fieldConfig": {
+        "defaults": { "unit": "reqps" },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "429" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "orange" } }] },
+          { "matcher": { "id": "byName", "options": "503" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "red" } }] }
+        ]
+      },
+      "options": { "legend": { "displayMode": "table", "placement": "right", "calcs": ["lastNotNull"] } }
+    },
+    {
+      "type": "timeseries", "title": "Answer cache", "gridPos": { "h": 8, "w": 12, "x": 12, "y": 12 },
+      "description": "Hits never touch the database or the model; coalesced requests waited on an identical question already being answered.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "refId": "A", "expr": "sum by (result) (rate(synaptix_answer_cache_total[5m]))", "legendFormat": "{{result}}" }],
+      "fieldConfig": { "defaults": { "unit": "reqps" } },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" } }
+    },
+    {
+      "type": "timeseries", "title": "Model calls by outcome", "gridPos": { "h": 8, "w": 12, "x": 0, "y": 20 },
+      "description": "failover: quota or overload, moved to the next model. rate_limited: waited out a per-minute limit (workers only).",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "refId": "A", "expr": "sum by (model, outcome) (rate(synaptix_llm_calls_total[5m]))", "legendFormat": "{{model}} {{outcome}}" }],
+      "fieldConfig": { "defaults": { "unit": "reqps" } },
+      "options": { "legend": { "displayMode": "table", "placement": "right", "calcs": ["lastNotNull"] } }
+    },
+    {
+      "type": "timeseries", "title": "Model latency p95", "gridPos": { "h": 8, "w": 12, "x": 12, "y": 20 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "refId": "A", "expr": "histogram_quantile(0.95, sum by (le, model) (rate(synaptix_llm_call_duration_seconds_bucket[5m])))", "legendFormat": "{{model}}" }],
+      "fieldConfig": { "defaults": { "unit": "s" } },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" } }
+    },
+    {
+      "type": "timeseries", "title": "Tokens per minute", "gridPos": { "h": 8, "w": 12, "x": 0, "y": 28 },
+      "description": "Attributed to the model that actually answered, after any failover.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "refId": "A", "expr": "sum by (model, kind) (rate(synaptix_llm_tokens_total[5m])) * 60", "legendFormat": "{{model}} {{kind}}" }],
+      "fieldConfig": { "defaults": { "unit": "short" } },
+      "options": { "legend": { "displayMode": "table", "placement": "right", "calcs": ["lastNotNull"] } }
+    },
+    {
+      "type": "timeseries", "title": "Jobs per minute", "gridPos": { "h": 8, "w": 12, "x": 12, "y": 28 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "refId": "A", "expr": "sum by (job, outcome) (rate(synaptix_jobs_total[15m])) * 60", "legendFormat": "{{job}} {{outcome}}" }],
+      "fieldConfig": { "defaults": { "unit": "short" } },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" } }
+    },
+    {
+      "type": "timeseries", "title": "Job duration p95", "gridPos": { "h": 8, "w": 12, "x": 0, "y": 36 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "refId": "A", "expr": "histogram_quantile(0.95, sum by (le, job) (rate(synaptix_job_duration_seconds_bucket[15m])))", "legendFormat": "{{job}}" }],
+      "fieldConfig": { "defaults": { "unit": "s" } },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" } }
+    },
+    {
+      "type": "timeseries", "title": "Ingestion stage p95", "gridPos": { "h": 8, "w": 12, "x": 12, "y": 36 },
+      "description": "Parsing is CPU-bound; enriching and embedding wait on the model.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "refId": "A", "expr": "histogram_quantile(0.95, sum by (le, stage) (rate(synaptix_ingest_stage_duration_seconds_bucket[30m])))", "legendFormat": "{{stage}}" }],
+      "fieldConfig": { "defaults": { "unit": "s" } },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" } }
+    }
+  ]
+}
