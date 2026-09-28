@@ -362,3 +362,47 @@ async def test_every_model_call_gets_a_fresh_fence(api, fake_gemini, small_pdf):
         if "<<<DOC" in c.text
     ]
     assert len(nonces) >= 4 and len(set(nonces)) == len(nonces), "a nonce was reused"
+
+
+async def test_fabricated_citations_are_removed(api, fake_gemini, small_pdf, monkeypatch):
+    from tests import fake_gemini as fake_module
+
+    await _ingest(api, small_pdf)
+    monkeypatch.setattr(fake_module, "ANSWER", "Growth came from enterprise accounts [1][42].")
+    body = (await api.post("/api/v1/query", json={"question": "What drove revenue growth?"})).json()
+    assert "[1]" in body["answer"] and "[42]" not in body["answer"]
+
+
+async def test_evidence_the_model_never_saw_is_dropped(api, fake_gemini, small_pdf, monkeypatch):
+    from tests import fake_gemini as fake_module
+
+    doc = await _ingest(api, small_pdf)
+    original = fake_module._instance
+    monkeypatch.setattr(
+        fake_module,
+        "_instance",
+        lambda schema: 999 if schema.get("type", "").upper() == "INTEGER" else original(schema),
+    )
+    r = await api.post(
+        "/api/v1/analyses", json={"kind": "study_guide", "document_ids": [doc["id"]]}
+    )
+    await _run_queued(api)
+    run = (await api.get(f"/api/v1/analyses/{r.json()['id']}")).json()
+    assert run["status"] == "done"
+    for stage in run["result"].values():
+        for items in stage["output"].values():
+            for item in items if isinstance(items, list) else []:
+                if isinstance(item, dict) and "evidence" in item:
+                    assert item["evidence"] == [], "an evidence number pointing nowhere was kept"
+
+
+async def test_every_model_request_has_an_output_cap(api, fake_gemini, small_pdf):
+    doc = await _ingest(api, small_pdf)
+    await api.post("/api/v1/query", json={"question": "What drove revenue growth?"})
+    await api.post("/api/v1/analyses", json={"kind": "study_guide", "document_ids": [doc["id"]]})
+    await _run_queued(api)
+    cap = get_settings().llm_max_output_tokens
+    generations = [c for c in fake_gemini.calls if c.method != "batchEmbedContents"]
+    assert generations
+    for call in generations:
+        assert 0 < call.body["generationConfig"]["maxOutputTokens"] <= cap, call.method

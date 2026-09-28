@@ -1,5 +1,6 @@
 import asyncio
 import json
+import re
 import uuid
 from collections.abc import AsyncIterator
 
@@ -166,7 +167,8 @@ async def query(
             "candidates": retrieval.candidates,
         }
         if not body.stream:
-            payload["answer"] = await answerer.answer(body.question, retrieval.passages, body.style)
+            answer = await answerer.answer(body.question, retrieval.passages, body.style)
+            payload["answer"] = _only_valid_citations(answer, passages)
             await cache.put(key, payload)
             return QueryResponse(**payload, usage=usage.current().as_dict())
     except BaseException:
@@ -183,9 +185,13 @@ async def query(
             async for token in answerer.stream(body.question, retrieval.passages, body.style):
                 tokens.append(token)
                 yield _sse("token", token)
-            await cache.put(key, payload | {"answer": "".join(tokens)})
+            answer = _only_valid_citations("".join(tokens), passages)
+            await cache.put(key, payload | {"answer": answer})
             done = {"queries": retrieval.queries, "candidates": retrieval.candidates}
-            yield _sse("done", done | {"usage": usage.current().as_dict()})
+            # Tokens are already on the wire, so a streamed answer cannot be rewritten; the final
+            # event names the citations that are real, and the cached copy is the cleaned one.
+            done |= {"citations": _cited(answer), "usage": usage.current().as_dict()}
+            yield _sse("done", done)
         except BaseException:
             cache.abandon(key)  # includes a client leaving mid-stream: never cache half an answer
             raise
@@ -214,6 +220,20 @@ def _serve_cached(cached: dict, stream: bool):
     return StreamingResponse(
         events(), media_type="text/event-stream", headers={"Cache-Control": "no-cache"}
     )
+
+
+_CITATION = re.compile(r"\[(\d{1,3})\]")
+
+
+def _only_valid_citations(answer: str, passages: list[PassageOut]) -> str:
+    """Removes `[n]` markers that name no passage the model was shown: a fabricated citation
+    points a reader at evidence that does not exist."""
+    real = {p.n for p in passages}
+    return _CITATION.sub(lambda m: m.group() if int(m.group(1)) in real else "", answer)
+
+
+def _cited(answer: str) -> list[int]:
+    return sorted({int(n) for n in _CITATION.findall(answer)})
 
 
 def _sse(event: str, data) -> str:

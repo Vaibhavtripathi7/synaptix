@@ -56,6 +56,9 @@ class Settings(BaseSettings):
     # Tried in order when the primary returns 429/503 (quota, outage). JSON list in env.
     llm_fallback_models: list[str] = ["gemini-3-flash-preview", "gemini-3.5-flash-lite"]
     llm_concurrency: int = 4
+    # Hard cap on any model response. A document can ask the model to write forever; this bounds
+    # what that costs the user's quota and what lands in the database.
+    llm_max_output_tokens: int = 8192
     # Workers wait out a per-minute rate limit; API processes should not sleep ~30s inside a
     # request, so they set this false and fail over at once.
     llm_wait_on_rate_limit: bool = True

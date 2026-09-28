@@ -63,6 +63,7 @@ class Gemini:
         self._embedding_model = settings.embedding_model
         self._embedding_dim = settings.embedding_dim
         self._sem = asyncio.Semaphore(settings.llm_concurrency)
+        self._max_output = settings.llm_max_output_tokens
         self._wait_on_rate_limit = settings.llm_wait_on_rate_limit
 
     @staticmethod
@@ -80,7 +81,7 @@ class Gemini:
         return types.GenerateContentConfig(
             system_instruction=system,
             temperature=temperature,
-            max_output_tokens=max_tokens,
+            max_output_tokens=min(max_tokens or self._max_output, self._max_output),
             response_mime_type="application/json" if schema else None,
             response_schema=schema,
             # Models think by default; extraction-style calls run at the lowest thinking level.

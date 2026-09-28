@@ -191,13 +191,14 @@ async def run_mapped_agent(
 
     async def one(batch: list[Passage]) -> BaseModel:
         fence = Fence()
-        return await answerer.llm.generate_structured(
+        out = await answerer.llm.generate_structured(
             _prompt(fence, batch, inputs),
             agent.schema,
             system=agent.system + fence.rule,
             strong=True,
             think=True,
         )
+        return _checked(out, batch)
 
     fragments = await asyncio.gather(*(one(b) for b in batches))
     return _merge(fragments), passages
@@ -246,7 +247,7 @@ async def run_agent(
         strong=True,
         think=True,
     )
-    return result, passages
+    return _checked(result, passages), passages
 
 
 async def compare(
@@ -262,7 +263,7 @@ async def compare(
     result = await answerer.llm.generate_structured(
         prompt, PaperComparison, system=COMPARISON_SYSTEM + fence.rule, strong=True, think=True
     )
-    return result, a + b
+    return _checked(result, a + b), a + b
 
 
 def _prompt(fence: Fence, passages: list[Passage], inputs: dict[str, BaseModel] | None) -> str:
@@ -274,3 +275,15 @@ def _prompt(fence: Fence, passages: list[Passage], inputs: dict[str, BaseModel] 
     ]
     parts.append(f"Passages:\n\n{render(passages, fence)}")
     return "\n\n".join(parts)
+
+
+def _checked(output: BaseModel, passages: list[Passage]) -> BaseModel:
+    """Model output is validated before anyone sees it: an evidence number must name a passage
+    the model was shown. Anything else — a hallucination, or an injection pointing citations
+    somewhere else — is dropped rather than stored."""
+    allowed = {p.n for p in passages}
+    for field in type(output).model_fields:
+        for item in getattr(output, field) if isinstance(getattr(output, field), list) else []:
+            if isinstance(getattr(item, "evidence", None), list):
+                item.evidence = [n for n in item.evidence if n in allowed]
+    return output
