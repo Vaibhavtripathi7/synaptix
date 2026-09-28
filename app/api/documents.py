@@ -9,6 +9,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import (
+    AnswerCacheDep,
     AnswererDep,
     GeminiKeyDep,
     QueueDep,
@@ -187,8 +188,10 @@ async def delete_document(
     workspace: WorkspaceDep,
     session: SessionDep,
     storage: StorageDep,
+    cache: AnswerCacheDep,
 ) -> None:
     doc = await owned_document(session, workspace, document_id)
     await session.delete(doc)
     await session.commit()
+    await cache.invalidate(workspace)  # after the commit: answers citing it must not be served
     await storage.delete_prefix(f"{document_id}/")

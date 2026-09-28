@@ -25,14 +25,13 @@ pinned to 4 cores, load generator to the other 4, 64 connections, 15 s after a w
 |---|---:|---:|---:|
 | framework floor (`/healthz`) | 4,401 req/s | 8,631 req/s | 14.5 ms |
 | authenticated database read | 283 req/s | 634 req/s | 135 ms |
-| cached answer | 190 req/s | 434 req/s | 196 ms |
+| cached answer | 282 req/s | 610 req/s | 165 ms |
 
 An authenticated read pays for the workspace check, an atomic rate-limit script in Redis, an
-indexed query, and response validation. A cached answer pays for all of that plus the cache
-read, because the key carries the searched documents' versions, read from Postgres. Four
-processes do not reach 4× on this machine because Postgres and Redis share its eight cores with
-the server and the load generator; on separate hosts, API replicas scale close to linearly,
-since they share no state.
+indexed query, and response validation. A cached answer is served from Redis alone — the
+workspace's library version, then the answer — which is why it now outruns a database read. Four processes do not reach 4× on this machine because Postgres and Redis share its
+eight cores with the server and the load generator; on separate hosts, API replicas scale
+close to linearly, since they share no state.
 
 ### What moved these numbers
 
@@ -44,8 +43,10 @@ Profiling first, then one change at a time, re-measured after each:
 | drop `pool_pre_ping` (a round trip on every checkout); recycle connections by age instead | p99 **913 → 135 ms** together with the above |
 | pool sized to the concurrency a replica actually runs (5+10 → 20+10) | removed queueing for connections |
 | defer the `graph` column | listing no longer drags up to hundreds of KB per document out of Postgres |
+| answer cache hits served from Redis alone (per-workspace library version) | cached answers **434 → 610 req/s**, p99 196 → 165 ms; from 0.7× to 1.1× the throughput of a database read |
 
-Runs vary by about 10% on this machine, so compare rows within one run.
+Runs vary by about 10% on this machine (the framework floor measured 8,631 and 7,316 req/s on
+different days), so compare rows within one run: `bench/results.md` holds the latest.
 
 Measured and **rejected**:
 
@@ -99,16 +100,19 @@ statement cache is off). A read replica for retrieval queries. Size the cache Re
 observed hit ratio (`synaptix_answer_cache_total`).
 *Trigger:* Postgres CPU on the primary, or cache evictions rising while the hit ratio falls.
 
-**~50,000 req/s.** Take Postgres off the cache-hit path: today every hit reads the searched
-documents' versions to validate freshness. Version each workspace's library in Redis instead, so
-a hit is answered from Redis alone. Then Redis Cluster for the cache and rate limits (both keyed
-by workspace, so they shard naturally). Serve the static UI from a CDN; move figures to short-lived signed URLs so they can be cached at the edge (today
+**~50,000 req/s.** Postgres is already off the cache-hit path: a hit reads the workspace's
+library version and the answer from Redis, and a document becoming ready or being deleted
+replaces that version, so there is no database read to validate freshness. What remains is
+Redis itself: Redis Cluster for the cache and rate limits (both keyed by workspace, so they
+shard naturally). Serve the static UI
+from a CDN; move figures to short-lived signed URLs so they can be cached at the edge (today
 they are fetched with a header, which a CDN cannot cache).
 *Trigger:* Redis CPU or memory on the cache instance.
 
 **Toward 1,000,000 req/s.** For reads and cached answers this is a matter of fleet size:
-at ~190 cached answers per core, about 5,300 API cores, plus the Redis and database work behind
-them, spread across regions. Uncached questions do not scale this way under *any* design: at ~19k tokens each,
+at ~280 cached answers per core, about 3,600 API cores, and three Redis operations per cached
+answer (rate limit, library version, answer) at ~100k operations per shard, about 30 shards,
+spread across regions. Uncached questions do not scale this way under *any* design: at ~19k tokens each,
 a million per second would be ~19 billion tokens per second, beyond what model providers serve.
 At that scale the product has to be mostly cache hits and precomputed per-document artifacts,
 which is exactly what the model path above is built around.
@@ -122,7 +126,9 @@ which is exactly what the model path above is built around.
 - API processes never sleep on a provider rate limit inside a request; they fail over to the
   next model. Only workers wait.
 - The answer cache fails open (a cache outage costs latency, not availability) and is excluded
-  from readiness, so a cache blip cannot pull every replica out of the load balancer.
+  from readiness, so a cache blip cannot pull every replica out of the load balancer. Library
+  versions expire after ten minutes, which bounds how long a failed invalidation (the cache
+  unreachable at the moment a document changed) can serve answers from before the change.
 - The queue Redis never evicts; the cache Redis always may. They are separate instances for that
   reason.
 - No database transaction is held across a model call, and migrations run with `lock_timeout`,

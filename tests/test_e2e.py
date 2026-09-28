@@ -41,6 +41,7 @@ async def api(db, redis, tmp_path, fake_gemini):
     app.state.limiter = RateLimiter(redis)
     app.state.admission = Admission(limit=64)
     app.state.answer_cache = AnswerCache(redis, ttl_s=0)  # always exercise the model path
+    app.state.cache_redis = redis
     headers = {"x-workspace": secrets.token_urlsafe(32), "x-gemini-key": KEY}
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(
@@ -57,7 +58,11 @@ async def api(db, redis, tmp_path, fake_gemini):
 async def _run_queued(client) -> None:
     """Runs the job the API just queued, exactly as the arq worker would call it."""
     name, args, kwargs = client._transport.app.state.queue.jobs.pop()
-    ctx = {"settings": get_settings(), "storage": app.state.storage}
+    ctx = {
+        "settings": get_settings(),
+        "storage": app.state.storage,
+        "cache_redis": app.state.cache_redis,
+    }
     job = {"ingest": ingest, "analyze": analyze}[name]
     await job(ctx, *args, request_id=kwargs.get("request_id"))
 
@@ -223,3 +228,16 @@ async def test_a_study_guide_end_to_end(api, fake_gemini, small_pdf):
         c.method != "batchEmbedContents" or c.model == get_settings().embedding_model
         for c in fake_gemini.calls
     )
+
+
+async def test_a_document_becoming_ready_invalidates_cached_answers(api, redis, small_pdf):
+    """The worker's side of invalidation, end to end: once a new document is ready, a question
+    over the whole library must be answered afresh — the library it was answered from changed."""
+    app.state.answer_cache = AnswerCache(redis, ttl_s=3600)
+    await _ingest(api, small_pdf)
+    question = {"question": "What drove revenue growth?"}
+    await api.post("/api/v1/query", json=question)
+    assert (await api.post("/api/v1/query", json=question)).json()["cached"] is True
+
+    await _ingest(api, small_pdf + b"\n% second copy\n")  # new bytes, new hash: a second document
+    assert (await api.post("/api/v1/query", json=question)).json()["cached"] is False

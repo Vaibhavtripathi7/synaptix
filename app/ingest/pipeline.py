@@ -30,14 +30,17 @@ async def ingest_document(
     llm: Gemini,
     embedder: Embedder,
     settings: Settings,
-) -> None:
+) -> str | None:
+    """Returns the workspace that gained a searchable document, so the caller can invalidate its
+    cached answers once the change is committed; None if the document no longer exists."""
     async with SessionLocal() as session:
         doc = await session.get(Document, document_id)
         if doc is None:
             log.warning("ingest.missing", document_id=str(document_id))
-            return
+            return None
         try:
             await _run(session, doc, storage, llm, embedder, settings)
+            return doc.workspace_id
         except asyncio.CancelledError:
             # Worker shutdown or restart. Record it before unwinding, shielded so the write
             # itself is not cancelled; a SIGKILL skips this and the startup reaper covers it.

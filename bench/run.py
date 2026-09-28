@@ -6,12 +6,17 @@ What it measures, and what it deliberately does not: the model is an external se
 throughput is set by the provider and the caller's quota, not by this code, so it is out of
 scope. The paths measured are the ones this system owns — the framework floor, an authenticated
 database read, and a question answered from the cache (auth, per-workspace rate limit in Redis,
-document versions, cache read, response). Those set how many replicas a given load needs.
+document lookup, cache read, response). Those set how many replicas a given load needs.
 
 Method: the server is pinned to cores 0-3 and the load generator (oha, in a container, so
 nothing is installed on the host) to cores 4-7, so the client does not steal the server's CPU.
 Production settings: JSON logs, no uvicorn access log. Rate limits are lifted: this measures
-capacity, not policy (the limiter's own cost is still paid on every request)."""
+capacity, not policy (the limiter's own cost is still paid on every request).
+
+The benchmark must never reach the model — one cache miss would otherwise spend real quota. Three
+guards: requests carry a dummy per-request key, so no real key is ever selected; the server runs
+behind a dead HTTPS proxy, so any HTTP call it tries fails locally; and afterwards the server's
+own metrics are read, and any model call attempted fails the run."""
 
 import asyncio
 import hashlib
@@ -38,8 +43,8 @@ OUT = Path(__file__).with_name("results.md")
 
 
 async def seed(token: str) -> str:
-    """A ready document in a fresh workspace, and a cached answer for QUESTION about it — what a
-    first, computed answer would have left behind."""
+    """A ready document in a fresh workspace, and a cached answer for QUESTION about it under the
+    workspace's library version — what a first, computed answer would have left behind."""
     settings = get_settings()
     workspace = hashlib.sha256(token.encode()).hexdigest()
     async with SessionLocal() as s:
@@ -53,7 +58,7 @@ async def seed(token: str) -> str:
         )
         s.add(doc)
         await s.commit()
-        key = cache_key(workspace, {doc.id: doc.updated_at}, QUESTION, "standard", settings)
+        key = cache_key(workspace, "bench", [doc.id], QUESTION, "standard", settings)
     passage = {
         "n": 1,
         "chunk_ids": [],
@@ -74,6 +79,7 @@ async def seed(token: str) -> str:
         "candidates": 40,
     }
     cache = Redis.from_url(settings.cache_redis_url)
+    await cache.set(f"lib:{workspace}", "bench", ex=3600)
     await cache.set(key, json.dumps(payload), ex=3600)
     await cache.aclose()
     await engine.dispose()  # pooled connections belong to this event loop; unseed runs in another
@@ -93,6 +99,8 @@ def serve(workers: int) -> subprocess.Popen:
         "SYNAPTIX_LOG_LEVEL": "WARNING",
         "SYNAPTIX_RATE_LIMITS": json.dumps({k: [1e9, 10**9] for k in ("model", "upload", "read")}),
         "SYNAPTIX_METRICS_PORT": "9110",
+        "HTTPS_PROXY": "http://127.0.0.1:9",  # nothing listens here: HTTP egress fails locally
+        "HTTP_PROXY": "http://127.0.0.1:9",
     }
     cmd = [
         "taskset",
@@ -138,6 +146,8 @@ def load(path: str, token: str, body: str | None = None) -> dict:
         str(CONNECTIONS),
         "-H",
         f"x-workspace: {token}",
+        "-H",
+        "x-gemini-key: bench-dummy-key-never-sent",
     ]
     if body:
         cmd += ["-m", "POST", "-T", "application/json", "-d", body]
@@ -151,6 +161,14 @@ def load(path: str, token: str, body: str | None = None) -> dict:
         "ok": r["summary"]["successRate"],
         "codes": r.get("statusCodeDistribution", {}),
     }
+
+
+def assert_no_model_calls() -> None:
+    """Any model call attempted means a cache miss reached the model path — and the numbers
+    measured would not be the cached path's numbers either."""
+    metrics = urllib.request.urlopen("http://127.0.0.1:9110/metrics", timeout=5).read().decode()
+    calls = [line for line in metrics.splitlines() if line.startswith("synaptix_llm_calls_total{")]
+    assert not calls, f"the benchmark attempted model calls: {calls}"
 
 
 def main() -> None:
@@ -180,6 +198,7 @@ def main() -> None:
                         f"p99 {r['p99']:6.1f} ms  ok {r['ok']:.3f}  {r['codes']}",
                         flush=True,
                     )
+                assert_no_model_calls()
             finally:
                 server.terminate()
                 server.wait()

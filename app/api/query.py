@@ -2,7 +2,6 @@ import asyncio
 import json
 import uuid
 from collections.abc import AsyncIterator
-from datetime import datetime
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
@@ -68,19 +67,18 @@ class QueryResponse(BaseModel):
 
 async def _searchable(
     session: AsyncSession, workspace: str, requested: list[uuid.UUID] | None
-) -> dict[uuid.UUID, datetime]:
-    """The documents a query may touch, with their versions: the requested ones if all belong to
-    the workspace, otherwise every ready document in it. A foreign id is a 404, never silently
-    dropped."""
-    stmt = select(Document.id, Document.updated_at).where(
+) -> list[uuid.UUID]:
+    """The documents a query may touch: the requested ones if all belong to the workspace,
+    otherwise every ready document in it. A foreign id is a 404, never silently dropped."""
+    stmt = select(Document.id).where(
         Document.workspace_id == workspace, Document.status == DocStatus.ready
     )
     if requested:
         stmt = stmt.where(Document.id.in_(requested))
-    versions = dict((await session.execute(stmt)).all())
-    if requested and len(versions) != len(set(requested)):
+    ids = list(await session.scalars(stmt))
+    if requested and len(ids) != len(set(requested)):
         raise HTTPException(404, "one or more documents were not found or are not ready")
-    return versions
+    return ids
 
 
 async def _attach_images(session: AsyncSession, passages: list[PassageOut]) -> None:
@@ -119,16 +117,28 @@ async def query(
     """Answer a question with citations. With `stream: true` the response is Server-Sent
     Events: one `passages` event, then `token` events, then `done`.
 
-    The cache is consulted before admission, so a cached or coalesced answer never occupies one
+    Order matters for capacity. A hit is answered from Redis before the database is touched, and
+    the cache is consulted before admission, so a cached or coalesced answer never occupies one
     of the replica's scarce model slots."""
-    versions = await _searchable(session, workspace, body.document_ids)
-    if not versions:
+
+    def key_for(version: str) -> str:
+        return cache_key(
+            workspace, version, body.document_ids, body.question, body.style, answerer.settings
+        )
+
+    version = await cache.version(workspace)
+    if version and (cached := await cache.get(key_for(version))) is not None:
+        return _serve_cached(cached, body.stream)  # no database read at all
+
+    document_ids = await _searchable(session, workspace, body.document_ids)
+    if not document_ids:
         raise HTTPException(404, "no ready documents to search in this workspace")
     await end_read(session)  # waits and model calls below must not hold locks
-    key = cache_key(workspace, versions, body.question, body.style, answerer.settings)
+    version = version or await cache.mint_version(workspace)
+    key = key_for(version)
 
-    cached = await cache.get(key)
-    if cached is None and (leader := cache.follow(key)) is not None:
+    cached = None
+    if (leader := cache.follow(key)) is not None:
         try:  # another request here is computing this exact answer: wait for it
             cached = await asyncio.wait_for(asyncio.shield(leader), timeout=120)
         except TimeoutError:
@@ -142,7 +152,7 @@ async def query(
         cache.abandon(key)
         raise
     try:
-        retrieval = await answerer.retrieve(session, body.question, list(versions))
+        retrieval = await answerer.retrieve(session, body.question, document_ids)
         if not retrieval.passages:
             raise HTTPException(404, "no indexed content matched; is the document ready?")
         passages = [PassageOut.from_passage(p) for p in retrieval.passages]

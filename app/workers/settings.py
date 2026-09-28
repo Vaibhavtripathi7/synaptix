@@ -10,6 +10,7 @@ import structlog
 from arq.connections import RedisSettings
 from prometheus_client import start_http_server
 from pydantic import SecretStr
+from redis.asyncio import Redis
 from sqlalchemy import update
 
 from app.analysis.pipeline import run_analysis
@@ -21,6 +22,7 @@ from app.db.models import DocStatus, Document
 from app.db.session import SessionLocal
 from app.ingest.pipeline import ingest_document
 from app.rag.answer import answerer_for
+from app.rag.cache import invalidate_library
 from app.storage import LocalStorage
 
 log = structlog.get_logger()
@@ -51,7 +53,11 @@ async def startup(ctx: dict) -> None:
     configure_logging()
     settings = get_settings()
     # No model clients here: each job brings its user's key and gets that key's stack.
-    ctx.update(settings=settings, storage=LocalStorage(settings.storage_dir))
+    ctx.update(
+        settings=settings,
+        storage=LocalStorage(settings.storage_dir),
+        cache_redis=Redis.from_url(settings.cache_redis_url),  # to invalidate cached answers
+    )
     start_http_server(settings.worker_metrics_port)
     ctx["depth_poller"] = asyncio.create_task(_poll_queue_depth(ctx["redis"]))
     await reap_stranded()
@@ -59,6 +65,7 @@ async def startup(ctx: dict) -> None:
 
 async def shutdown(ctx: dict) -> None:
     ctx["depth_poller"].cancel()
+    await ctx["cache_redis"].aclose()
 
 
 async def _poll_queue_depth(redis, every: float = 5.0) -> None:
@@ -97,17 +104,19 @@ async def ingest(
     ctx: dict, document_id: str, api_key: SecretStr | None = None, request_id: str | None = None
 ) -> None:
     answerer = _stack(api_key)
-    await _run_job(
-        "ingest",
-        request_id,
-        lambda: ingest_document(
+
+    async def work() -> None:
+        workspace = await ingest_document(
             uuid.UUID(document_id),
             storage=ctx["storage"],
             llm=answerer.llm,
             embedder=answerer.embedder,
             settings=ctx["settings"],
-        ),
-    )
+        )
+        if workspace:  # the document is committed as ready: its library just changed
+            await invalidate_library(ctx["cache_redis"], workspace)
+
+    await _run_job("ingest", request_id, work)
 
 
 async def analyze(
