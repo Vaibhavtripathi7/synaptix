@@ -23,6 +23,7 @@ from app.api.deps import (
 )
 from app.api.schemas import DocumentOut, ElementOut
 from app.core.middleware import current_request_id
+from app.core.validation import clean_filename
 from app.db.models import Chunk, DocStatus, Document, Element
 from app.db.session import end_read
 
@@ -85,7 +86,7 @@ async def upload(
         doc = Document(
             id=uuid.uuid4(),
             workspace_id=workspace,
-            filename=(file.filename or "document.pdf")[:255],
+            filename=clean_filename(file.filename),
             content_hash=digest,
             storage_key="",
         )

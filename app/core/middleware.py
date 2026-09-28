@@ -15,6 +15,7 @@ import structlog
 
 from app.core import usage
 from app.core.metrics import HTTP_IN_FLIGHT, HTTP_LATENCY, HTTP_REQUESTS
+from app.core.validation import REQUEST_ID
 
 log = structlog.get_logger()
 
@@ -31,7 +32,10 @@ class RequestContext:
             return
 
         headers = dict(scope["headers"])
-        request_id = headers.get(b"x-request-id", b"").decode("latin-1") or uuid.uuid4().hex[:12]
+        # A client-supplied id goes into every log line and a response header: accepted only if
+        # it matches a strict pattern, otherwise replaced.
+        supplied = headers.get(b"x-request-id", b"").decode("latin-1")
+        request_id = supplied if REQUEST_ID.fullmatch(supplied) else uuid.uuid4().hex[:12]
         structlog.contextvars.clear_contextvars()
         structlog.contextvars.bind_contextvars(request_id=request_id)
         is_api = scope["path"].startswith("/api/")

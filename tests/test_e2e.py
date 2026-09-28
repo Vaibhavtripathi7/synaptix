@@ -23,7 +23,7 @@ from app.storage import LocalStorage
 from app.workers.settings import analyze, ingest
 from tests.fake_gemini import ANSWER, FIGURE, OCR_TEXT, USAGE, overloaded, quota_error
 
-KEY = "AIzaTEST-e2e-key-000000000000000000"
+KEY = "AIzaTEST-e2e-key-000000000000000000"  # key-shaped: the API validates the format
 
 
 class FakeQueue:

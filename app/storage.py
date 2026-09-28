@@ -31,6 +31,7 @@ from fastapi import HTTPException
 from fastapi.responses import FileResponse, Response, StreamingResponse
 
 from app.core.settings import Settings
+from app.core.validation import content_disposition
 
 
 class Storage(Protocol):
@@ -71,10 +72,8 @@ class LocalStorage:
         path = self._path(key)
         if not path.is_file():
             raise HTTPException(404, "file not found")
-        # FileResponse handles Range requests itself.
-        return FileResponse(
-            path, media_type=media_type, filename=filename, content_disposition_type="inline"
-        )
+        headers = {"content-disposition": content_disposition(filename)} if filename else None
+        return FileResponse(path, media_type=media_type, headers=headers)  # handles Range
 
     async def close(self) -> None:
         pass
@@ -238,7 +237,7 @@ class S3Storage:
         }
         headers["accept-ranges"] = "bytes"
         if filename:
-            headers["content-disposition"] = f'inline; filename="{filename}"'
+            headers["content-disposition"] = content_disposition(filename)
 
         async def body() -> AsyncIterator[bytes]:
             try:

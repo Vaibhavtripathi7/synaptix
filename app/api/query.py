@@ -33,7 +33,9 @@ router = APIRouter(tags=["query"])
 
 class QueryRequest(BaseModel):
     question: str = Field(min_length=3, max_length=2000)
-    document_ids: list[uuid.UUID] | None = None  # None = every ready document in the workspace
+    # None = every ready document in the workspace. Capped: an unbounded list becomes an
+    # unbounded IN clause, and a workspace holds at most `max_documents_per_workspace` anyway.
+    document_ids: list[uuid.UUID] | None = Field(default=None, max_length=50)
     style: Style = "standard"  # how much explanation the answer should carry
     stream: bool = False
 

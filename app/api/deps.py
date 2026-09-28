@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.limits import Admission, RateLimiter
 from app.core.settings import Settings, get_settings
+from app.core.validation import GEMINI_KEY, WORKSPACE_TOKEN
 from app.db.session import get_session
 from app.rag.answer import Answerer, MissingKeyError, answerer_for
 from app.rag.cache import AnswerCache
@@ -28,8 +29,10 @@ def _workspace(x_workspace: Annotated[str | None, Header()] = None) -> str:
     The token is a bearer capability — whoever holds it owns the library — so it must be long
     and random (the UI generates 256 bits). Only its SHA-256 is stored and compared: a copy of
     the database does not grant access to anyone's documents."""
-    if not x_workspace or len(x_workspace) < 32:
-        raise HTTPException(401, "send an X-Workspace token of at least 32 characters")
+    if not x_workspace or not WORKSPACE_TOKEN.fullmatch(x_workspace):
+        raise HTTPException(
+            401, "send an X-Workspace token: 32 to 256 characters of A-Z, a-z, 0-9, - and _"
+        )
     return hashlib.sha256(x_workspace.encode()).hexdigest()
 
 
@@ -37,7 +40,11 @@ def _gemini_key(x_gemini_key: Annotated[str | None, Header()] = None) -> SecretS
     """The caller's own Gemini key, if they sent one. Wrapped at once so it is masked in every
     repr — including arq's job log lines, which print job arguments."""
     key = (x_gemini_key or "").strip()
-    return SecretStr(key) if key else None
+    if not key:
+        return None
+    if not GEMINI_KEY.fullmatch(key):
+        raise HTTPException(400, "the X-Gemini-Key header is not a well-formed Gemini API key")
+    return SecretStr(key)
 
 
 def _answerer(key: Annotated[SecretStr | None, Depends(_gemini_key)]) -> Answerer:
