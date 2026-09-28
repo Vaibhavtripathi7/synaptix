@@ -7,11 +7,12 @@ from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime, timedelta
 
 import structlog
+from arq import cron
 from arq.connections import RedisSettings
 from prometheus_client import start_http_server
 from pydantic import SecretStr
 from redis.asyncio import Redis
-from sqlalchemy import update
+from sqlalchemy import delete, update
 
 from app.analysis.pipeline import run_analysis
 from app.core import usage
@@ -47,6 +48,31 @@ async def reap_stranded() -> None:
         await session.commit()
     if result.rowcount:
         log.warning("ingest.reaped_stranded", documents=result.rowcount)
+
+
+async def purge_failed(ctx: dict) -> None:
+    """Failed documents keep their source so a re-upload can retry. After a day nobody is
+    retrying — and on an anonymous service, an upload that fails after its file is stored (a fake
+    key, say) is the cheapest way to fill a disk. Rows go first, then the files: a crash between
+    the two leaves orphaned files, never rows pointing at nothing."""
+    cutoff = datetime.now(UTC) - timedelta(hours=ctx["settings"].failed_retention_hours)
+    async with SessionLocal() as session:
+        purged = (
+            (
+                await session.execute(
+                    delete(Document)
+                    .where(Document.status == DocStatus.failed, Document.updated_at < cutoff)
+                    .returning(Document.id)
+                )
+            )
+            .scalars()
+            .all()
+        )
+        await session.commit()
+    for document_id in purged:
+        await ctx["storage"].delete_prefix(f"{document_id}/")
+    if purged:
+        log.info("purged_failed_documents", documents=len(purged))
 
 
 async def startup(ctx: dict) -> None:
@@ -128,6 +154,7 @@ async def analyze(
 
 class WorkerSettings:
     functions = [ingest, analyze]
+    cron_jobs = [cron(purge_failed, minute={7, 37})]  # twice an hour, off the top of the hour
     on_startup = startup
     on_shutdown = shutdown
     redis_settings = RedisSettings.from_dsn(get_settings().redis_url)

@@ -333,3 +333,70 @@ async def test_a_forged_forwarded_for_does_not_buy_a_fresh_ip_bucket(small_pdf, 
     scope = scope | {"state": {}, "headers": [(b"x-forwarded-for", b"6.6.6.6, 203.0.113.9")]}
     await behind_one_proxy(scope, None, None)
     assert seen == ["10.0.0.7", "203.0.113.9"], "only the entry the trusted proxy wrote counts"
+
+
+async def test_byte_quotas_refuse_what_counts_would_not(client, small_pdf, monkeypatch):
+    """Fifty 100 MB uploads is 5 GB: a document count alone does not protect a disk."""
+    from app.core.settings import get_settings
+
+    settings = get_settings()
+    monkeypatch.setattr(settings, "max_workspace_bytes", int(len(small_pdf) * 1.5))
+    headers = workspace()
+    assert (await _upload(client, headers, small_pdf)).status_code == 202
+    r = await _upload(client, headers, small_pdf + b"\n% another\n")
+    assert r.status_code == 413 and "quota" in r.json()["detail"]
+
+    monkeypatch.setattr(settings, "max_workspace_bytes", 10**12)
+    monkeypatch.setattr(settings, "max_total_bytes", 0)  # the service as a whole is full
+    r = await _upload(client, workspace(), small_pdf + b"\n% third\n")
+    assert r.status_code == 507
+
+
+async def test_failed_documents_are_purged_after_retention(db, tmp_path):
+    from datetime import UTC, datetime, timedelta
+
+    from app.core.settings import get_settings
+    from app.workers.settings import purge_failed
+
+    storage = LocalStorage(tmp_path)
+    old = datetime.now(UTC) - timedelta(hours=get_settings().failed_retention_hours + 1)
+    rows = {
+        "old_failed": (DocStatus.failed, old),
+        "new_failed": (DocStatus.failed, datetime.now(UTC)),
+        "old_ready": (DocStatus.ready, old),
+    }
+    ids = {}
+    async with SessionLocal() as s:
+        for name, (state, _) in rows.items():
+            d = Document(
+                workspace_id="p" * 64,
+                filename=f"{name}.pdf",
+                content_hash=uuid.uuid4().hex,
+                storage_key="x",
+                status=state,
+            )
+            s.add(d)
+            await s.flush()
+            ids[name] = d.id
+            await storage.put(f"{d.id}/source.pdf", b"%PDF", "application/pdf")
+        await s.commit()
+        for name, (_, when) in rows.items():  # set the age explicitly: onupdate would reset it
+            await s.execute(
+                text("update documents set updated_at = :w where id = :i"),
+                {"w": when, "i": ids[name]},
+            )
+        await s.commit()
+    try:
+        await purge_failed({"settings": get_settings(), "storage": storage})
+        async with SessionLocal() as s:
+            left = set(
+                await s.scalars(select(Document.filename).where(Document.id.in_(ids.values())))
+            )
+        assert left == {"new_failed.pdf", "old_ready.pdf"}
+        with pytest.raises(FileNotFoundError):
+            await storage.get(f"{ids['old_failed']}/source.pdf")
+        assert await storage.get(f"{ids['old_ready']}/source.pdf") == b"%PDF"
+    finally:
+        async with SessionLocal() as s:
+            await s.execute(delete(Document).where(Document.workspace_id == "p" * 64))
+            await s.commit()

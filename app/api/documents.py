@@ -23,6 +23,7 @@ from app.api.deps import (
 )
 from app.api.schemas import DocumentOut, ElementOut
 from app.core.middleware import current_request_id
+from app.core.settings import Settings
 from app.core.validation import clean_filename
 from app.db.models import Chunk, DocStatus, Document, Element
 from app.db.session import end_read
@@ -40,6 +41,27 @@ async def owned_document(session: AsyncSession, workspace: str, document_id: uui
     if doc is None:
         raise HTTPException(404, "document not found")
     return doc
+
+
+async def _enforce_quotas(
+    session: AsyncSession, workspace: str, incoming: int, settings: Settings
+) -> None:
+    """Document count and bytes per workspace, and bytes across everything. Soft limits: two
+    concurrent uploads can overshoot by one file, which bounds the error at one upload's size."""
+    count, used = (
+        await session.execute(
+            select(func.count(), func.coalesce(func.sum(Document.size_bytes), 0)).where(
+                Document.workspace_id == workspace
+            )
+        )
+    ).one()
+    if count >= settings.max_documents_per_workspace:
+        raise HTTPException(409, f"workspace holds {count} documents; delete one to add more")
+    if used + incoming > settings.max_workspace_bytes:
+        raise HTTPException(413, "workspace storage quota reached; delete a document to add more")
+    total = await session.scalar(select(func.coalesce(func.sum(Document.size_bytes), 0)))
+    if total + incoming > settings.max_total_bytes:
+        raise HTTPException(507, "the service is out of storage for new documents; try later")
 
 
 @router.post(
@@ -78,13 +100,10 @@ async def upload(
     if doc is not None and doc.status is not DocStatus.failed:
         return doc
     if doc is None:
-        count = await session.scalar(
-            select(func.count()).select_from(Document).where(Document.workspace_id == workspace)
-        )
-        if count >= settings.max_documents_per_workspace:
-            raise HTTPException(409, f"workspace holds {count} documents; delete one to add more")
+        await _enforce_quotas(session, workspace, len(data), settings)
         doc = Document(
             id=uuid.uuid4(),
+            size_bytes=len(data),
             workspace_id=workspace,
             filename=clean_filename(file.filename),
             content_hash=digest,

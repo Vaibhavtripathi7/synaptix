@@ -35,6 +35,11 @@ class Settings(BaseSettings):
     max_upload_mb: int = 100
     max_pages: int = 500
     max_documents_per_workspace: int = 50
+    # Bytes, not just counts: fifty 100 MB uploads is 5 GB. The global cap is what protects a
+    # small disk or a free storage tier from being filled by many workspaces at once.
+    max_workspace_bytes: int = 500 * 1024 * 1024
+    max_total_bytes: int = 20 * 1024 * 1024 * 1024
+    failed_retention_hours: int = 24  # failed uploads are purged after this, source file included
     # Comma-separated bearer keys accepted on /api/*. Empty (the default) leaves the API open,
     # which is only appropriate for local development.
     api_keys: str = ""

@@ -7,6 +7,7 @@ from enum import StrEnum
 from pgvector.sqlalchemy import Vector
 from sqlalchemy import (
     ARRAY,
+    BigInteger,
     Computed,
     DateTime,
     Enum,
@@ -75,6 +76,7 @@ class Document(Base):
     content_hash: Mapped[str] = mapped_column(String(64))
     storage_key: Mapped[str] = mapped_column(String(255))
     page_count: Mapped[int | None] = mapped_column(Integer)
+    size_bytes: Mapped[int] = mapped_column(BigInteger, default=0)  # source PDF, for quotas
     status: Mapped[DocStatus] = mapped_column(
         Enum(DocStatus, name="doc_status"), default=DocStatus.queued
     )
