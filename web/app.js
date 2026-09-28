@@ -406,6 +406,15 @@ const MATH_RE = [
   [/\\\(([\s\S]+?)\\\)/g, false],
   [/\$(?!\s)([^\n$]+?)(?<!\s)\$/g, false],
 ];
+// Links in rendered output come from model or document text: open them in a new tab with no
+// handle back to this page (reverse tabnabbing) and no referrer. DOMPurify already removes
+// javascript: URLs and event handlers; this is about ordinary links.
+DOMPurify.addHook("afterSanitizeAttributes", (node) => {
+  if (node.tagName === "A" && node.hasAttribute("href")) {
+    node.setAttribute("target", "_blank");
+    node.setAttribute("rel", "noopener noreferrer nofollow");
+  }
+});
 function renderMarkdown(md) {
   const spans = [];
   let src = String(md ?? "");
