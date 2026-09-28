@@ -45,7 +45,11 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Synaptix", version="0.1.0", lifespan=lifespan)
-app.add_middleware(RequestContext, operator_keys=get_settings().api_keys)
+app.add_middleware(
+    RequestContext,
+    operator_keys=get_settings().api_keys,
+    trusted_proxy_hops=get_settings().trusted_proxy_hops,
+)
 app.include_router(documents.router, prefix="/api/v1")
 app.include_router(query.router, prefix="/api/v1")
 app.include_router(analyses.router, prefix="/api/v1")

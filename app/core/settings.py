@@ -62,6 +62,17 @@ class Settings(BaseSettings):
         "upload": (0.2, 5),
         "read": (20.0, 100),
     }
+    # The same classes per client IP. Workspaces cost nothing to create, so without these one
+    # client could mint workspaces to multiply its allowance. Uploads are the tightest: they are
+    # what consumes disk and CPU.
+    ip_rate_limits: dict[str, tuple[float, int]] = {
+        "model": (1.0, 30),
+        "upload": (0.05, 5),
+        "read": (50.0, 200),
+    }
+    # Proxies in front of the API that append to X-Forwarded-For (Caddy: 1; Render's router: 1).
+    # 0 trusts nobody and uses the socket peer. Set this too high and clients can forge their IP.
+    trusted_proxy_hops: int = 0
     # USD per million tokens, (input, output), keyed by model. Empty: usage is reported in
     # tokens only — prices change and a stale default would report a confident wrong number.
     llm_prices_per_mtok: dict[str, tuple[float, float]] = {}

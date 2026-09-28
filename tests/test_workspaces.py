@@ -15,7 +15,7 @@ from pydantic import SecretStr
 from sqlalchemy import delete, select, text
 
 from app.analysis import agents
-from app.core.limits import BUCKETS, Admission, RateLimiter
+from app.core.limits import BUCKETS, IP_BUCKETS, Admission, RateLimiter
 from app.core.settings import get_settings
 from app.db.models import Chunk, DocStatus, Document, ElementKind
 from app.db.session import SessionLocal
@@ -296,3 +296,40 @@ async def test_a_full_replica_sheds_load_with_503_and_every_ticket_comes_back(cl
         assert admission.in_flight == 0, "a failed request leaked its admission slot"
     finally:
         app.dependency_overrides.pop(_answerer, None)
+
+
+async def test_minting_new_workspaces_does_not_escape_the_ip_limit(client, small_pdf, monkeypatch):
+    """Workspaces are free to create. Without a per-IP bucket, a client could mint a fresh
+    workspace per upload and never meet a limit; with it, the fifth upload from one address stops
+    however many workspaces it spreads them across."""
+    monkeypatch.setitem(IP_BUCKETS, "upload", (0.01, 4))
+    monkeypatch.setitem(BUCKETS, "upload", (1e6, 10**6))  # workspace limits out of the picture
+    codes = []
+    for i in range(6):
+        pdf = small_pdf + f"\n% copy {i}\n".encode()  # distinct bytes: no dedupe short-circuit
+        codes.append((await _upload(client, workspace(), pdf)).status_code)
+    assert codes[:4] == [202] * 4 and codes[4:] == [429, 429]
+
+
+async def test_a_forged_forwarded_for_does_not_buy_a_fresh_ip_bucket(small_pdf, monkeypatch):
+    """With no trusted proxy configured, X-Forwarded-For is written by the client and ignored."""
+    from app.core.middleware import RequestContext
+
+    seen = []
+
+    async def app_(scope, receive, send):
+        seen.append(scope["state"]["client_ip"])
+
+    mw = RequestContext(app_, trusted_proxy_hops=0)
+    scope = {
+        "type": "http",
+        "path": "/x",
+        "method": "GET",
+        "client": ("10.0.0.7", 1),
+        "headers": [(b"x-forwarded-for", b"1.2.3.4")],
+    }
+    await mw(scope, None, None)
+    behind_one_proxy = RequestContext(app_, trusted_proxy_hops=1)
+    scope = scope | {"state": {}, "headers": [(b"x-forwarded-for", b"6.6.6.6, 203.0.113.9")]}
+    await behind_one_proxy(scope, None, None)
+    assert seen == ["10.0.0.7", "203.0.113.9"], "only the entry the trusted proxy wrote counts"

@@ -7,6 +7,7 @@ an id on every log line (echoed to the client), the optional operator-key gate, 
 bounded-cardinality metrics, and one structured access-log line."""
 
 import hmac
+import ipaddress
 import json
 import time
 import uuid
@@ -21,8 +22,9 @@ log = structlog.get_logger()
 
 
 class RequestContext:
-    def __init__(self, app, operator_keys: str = "") -> None:
+    def __init__(self, app, operator_keys: str = "", trusted_proxy_hops: int = 0) -> None:
         self.app = app
+        self._hops = trusted_proxy_hops
         # Parsed once; compared in constant time so response timing reveals nothing about a key.
         self._keys = [k.strip().encode() for k in operator_keys.split(",") if k.strip()]
 
@@ -36,6 +38,7 @@ class RequestContext:
         # it matches a strict pattern, otherwise replaced.
         supplied = headers.get(b"x-request-id", b"").decode("latin-1")
         request_id = supplied if REQUEST_ID.fullmatch(supplied) else uuid.uuid4().hex[:12]
+        scope.setdefault("state", {})["client_ip"] = self._client_ip(scope, headers)
         structlog.contextvars.clear_contextvars()
         structlog.contextvars.bind_contextvars(request_id=request_id)
         is_api = scope["path"].startswith("/api/")
@@ -81,6 +84,22 @@ class RequestContext:
                     ms=round((time.perf_counter() - started) * 1000),
                     **(fields if ledger.calls else {}),
                 )
+
+    def _client_ip(self, scope, headers: dict[bytes, bytes]) -> str | None:
+        """The address rate limits key on. Each trusted proxy appends the address it received
+        the request from to X-Forwarded-For, so the client is `hops` entries from the right;
+        anything further left was written by the client and is not believed."""
+        peer = (scope.get("client") or (None,))[0]
+        if self._hops <= 0:
+            return peer
+        forwarded = headers.get(b"x-forwarded-for", b"").decode("latin-1")
+        chain = [h.strip() for h in forwarded.split(",") if h.strip()]
+        if len(chain) < self._hops:
+            return peer
+        try:
+            return str(ipaddress.ip_address(chain[-self._hops]))
+        except ValueError:
+            return peer
 
     def _authorised(self, headers: dict[bytes, bytes]) -> bool:
         token = headers.get(b"authorization", b"").removeprefix(b"Bearer ").strip()

@@ -55,11 +55,11 @@ def _answerer(key: Annotated[SecretStr | None, Depends(_gemini_key)]) -> Answere
 
 
 def _limit(bucket: str):
-    """Dependency factory: charge one request to `bucket` for the calling workspace."""
+    """Dependency factory: charge one request to `bucket` for this workspace and client IP."""
 
     async def check(request: Request, workspace: Annotated[str, Depends(_workspace)]) -> None:
         limiter: RateLimiter = request.app.state.limiter
-        await limiter.check(workspace, bucket)
+        await limiter.check(workspace, bucket, getattr(request.state, "client_ip", None))
 
     return Depends(check)
 

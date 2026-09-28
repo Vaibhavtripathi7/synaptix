@@ -15,6 +15,16 @@ DIM = get_settings().embedding_dim
 
 
 @pytest.fixture(autouse=True)
+def _generous_ip_limits(monkeypatch):
+    """Every test client connects from 127.0.0.1, so per-IP buckets would make tests throttle
+    each other. Lifted by default; the test that proves IP limits sets its own."""
+    from app.core import limits
+
+    for bucket in list(limits.IP_BUCKETS):
+        monkeypatch.setitem(limits.IP_BUCKETS, bucket, (1e6, 10**6))
+
+
+@pytest.fixture(autouse=True)
 def _no_model_network(monkeypatch):
     """Tests must never reach a paid model API: a stray call spends someone's real quota.
 
