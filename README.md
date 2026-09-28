@@ -4,8 +4,9 @@ A study and research workbench built on production RAG. Put your lecture notes, 
 papers in one corpus and ask questions across them — including **scanned and handwritten pages**,
 which are transcribed to Markdown and LaTeX by a vision model and indexed like everything else.
 Every answer cites the page it came from, and clicking a citation highlights that exact block on
-the rendered page. Study guides and paper comparisons are generated from targeted retrieval, not
-from a truncated document dump, so every point they make is evidence-linked.
+the rendered page. Study guides are built from every chunk of the document and comparisons from
+targeted retrieval on each paper — never from a truncated document dump — and every point they
+make links back to its evidence.
 
 Most "chat with your PDF" tools read the text layer and return nothing useful for a scanned
 notebook. This one answered a phase-relationship question from handwritten AC-circuit notes,
@@ -39,7 +40,7 @@ Requirements: Docker, [`uv`](https://docs.astral.sh/uv/).
 ```sh
 cp .env.example .env            # add SYNAPTIX_GOOGLE_API_KEY (or Vertex project)
 uv sync                          # project-local Python 3.12 + deps in ./.venv
-make infra                       # Postgres :5433 and Redis :6380 (non-default ports, no collisions)
+make infra                       # Postgres :5433, Redis :6380/:6381, S3 :9005 (non-default ports)
 make migrate
 make api                         # http://localhost:8000  (UI)   http://localhost:8000/docs (API)
 make worker                      # second terminal
@@ -118,13 +119,15 @@ heading paths and element kinds.
 
 ### Study guides and comparisons
 
-Each agent is a set of retrieval *facets* (e.g. "equations, formulas and mathematical
-relationships") whose hits are unioned into one budgeted context, plus a structured prompt; the
-output is a Pydantic model where every item lists the passage numbers it rests on. A study guide
-runs in two stages — `outline → practice`, so the questions are set from concepts actually
-extracted rather than from the raw text. A stage that finds nothing returns an empty list instead
-of inventing content. Runs are rows in `analysis_runs` storing the passages each stage used, so
-results stay auditable.
+Every agent returns a Pydantic model whose items list the passage numbers they rest on, and
+numbers the model was never shown are dropped before the result is stored. A study guide runs in
+two stages, `outline → practice`. The outline must not miss anything, so it maps over *every*
+chunk of the document in batches and merges the fragments — top-k retrieval would drop the tail
+by construction. Practice questions are then set from the concepts actually extracted, using
+retrieval *facets* (e.g. "worked examples, solved problems and numerical calculations"). A paper
+comparison retrieves the same facets from each paper. A stage that finds nothing returns an empty
+list instead of inventing content. Runs are rows in `analysis_runs` storing the passages each
+stage used, so results stay auditable.
 
 ### Cost
 
@@ -175,10 +178,20 @@ throughput numbers.
 **Protection.** Per-workspace token buckets (atomic Lua in Redis, on Redis's clock, so replicas
 enforce one limit) return `429 Retry-After`. Each replica caps model-backed requests in flight
 and refuses the excess with an immediate `503 Retry-After` instead of queueing. Identical
-concurrent questions collapse into one model call, and repeated ones are answered from a cache
-keyed on the documents' current versions, so it can never serve an answer from before a document
-changed. The cache fails open and lives in its own evicting Redis, apart from the job queue,
+concurrent questions collapse into one model call, and repeated ones are answered from Redis
+alone: the key includes a per-workspace library version that is replaced whenever a document
+becomes ready or is deleted, so a hit needs no database read and an answer from before a change is
+unreachable. The cache fails open and lives in its own evicting Redis, apart from the job queue,
 which never evicts.
+
+**Security.** Everything a stranger can send is validated at the edge: workspace tokens, keys,
+request ids and filenames against whitelists, every body field bounded. Rate limits apply per
+workspace *and* per client IP, uploads are capped by bytes per workspace and across the server,
+and failed uploads are purged. Each PDF is parsed in a child process under kernel memory and CPU
+limits. Document text is fenced with a per-call nonce in every prompt, model output is validated
+(citations, evidence numbers, length) and rendered through DOMPurify under a strict CSP.
+Production containers run read-only with every Linux capability dropped. The threat model, each
+defence and the residual risks are in [`SECURITY.md`](SECURITY.md).
 
 ## Develop
 
