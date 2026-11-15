@@ -91,10 +91,9 @@ class Document(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
-
-    chunks: Mapped[list["Chunk"]] = relationship(
-        back_populates="document", cascade="all, delete-orphan"
-    )
+    # No `chunks` collection: nothing reads it, and an ORM cascade would load every chunk (with
+    # its embedding) before deleting a document. The ON DELETE CASCADE foreign keys remove a
+    # document's elements, sections and chunks in the database instead.
 
 
 class Element(Base):
@@ -154,7 +153,7 @@ class Chunk(Base):
         TSVECTOR, Computed("to_tsvector('english', content)", persisted=True)
     )
 
-    document: Mapped[Document] = relationship(back_populates="chunks")
+    document: Mapped[Document] = relationship()
     section: Mapped[Section | None] = relationship()
 
     __table_args__ = (
