@@ -154,6 +154,7 @@ async def query(
     except BaseException:
         cache.abandon(key)
         raise
+    streaming = False  # once true, the stream below owns the slot and the leadership
     try:
         retrieval = await answerer.retrieve(session, body.question, document_ids)
         if not retrieval.passages:
@@ -171,14 +172,19 @@ async def query(
             payload["answer"] = _only_valid_citations(answer, passages)
             await cache.put(key, payload)
             return QueryResponse(**payload, usage=usage.current().as_dict())
+        streaming = True
     except BaseException:
         cache.abandon(key)
         raise
     finally:
-        if not body.stream:
+        if not streaming:
             ticket.release()
 
+    started = False
+
     async def events() -> AsyncIterator[str]:
+        nonlocal started
+        started = True
         tokens: list[str] = []
         try:
             yield _sse("passages", payload["passages"])
@@ -198,11 +204,18 @@ async def query(
         finally:
             ticket.release()
 
+    def end() -> None:
+        """Runs after the response. If the client left before streaming began, the generator
+        never ran, so its slot and its leadership are given up here."""
+        ticket.release()  # idempotent
+        if not started:
+            cache.abandon(key)  # only then: a finished stream's key may have a new leader
+
     return StreamingResponse(
         events(),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache"},
-        background=BackgroundTask(ticket.release),  # if the client left before streaming began
+        background=BackgroundTask(end),
     )
 
 

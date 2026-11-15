@@ -291,9 +291,14 @@ async def test_a_full_replica_sheds_load_with_503_and_every_ticket_comes_back(cl
         assert r.status_code == 503 and r.headers["retry-after"] == "1"
 
         admission.in_flight = 0
-        with pytest.raises(RuntimeError):  # the handler fails after being admitted
-            await client.post("/api/v1/query", json={"question": "why?"}, headers=headers)
-        assert admission.in_flight == 0, "a failed request leaked its admission slot"
+        # The handler fails after being admitted. A streamed request can fail the same way,
+        # before its stream (which would otherwise release the slot) ever starts.
+        for stream in (False, True):
+            with pytest.raises(RuntimeError):
+                await client.post(
+                    "/api/v1/query", json={"question": "why?", "stream": stream}, headers=headers
+                )
+            assert admission.in_flight == 0, f"a failed request leaked its slot (stream={stream})"
     finally:
         app.dependency_overrides.pop(_answerer, None)
 

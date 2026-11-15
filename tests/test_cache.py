@@ -6,6 +6,7 @@ must cost one model call, and a failed or abandoned answer must never be cached.
 
 import asyncio
 import hashlib
+import json
 import secrets
 
 import httpx
@@ -184,6 +185,42 @@ async def test_a_streamed_answer_is_cached_only_once_complete(api):
     again = await api.ask("Stream it?", stream=True)
     assert '"cached": true' in again.text and "half an answer" in again.text
     assert api.model.answers == 1
+
+
+async def test_a_client_gone_before_its_stream_starts_leaves_nothing_behind(api):
+    """The client disconnects before the first byte, so the answer is never produced. Its
+    admission slot must come back, and asking the same question again must not wait on a
+    leader that will never finish. Driven as raw ASGI: an HTTP client cannot leave that early."""
+    body = json.dumps({"question": "Gone already?", "stream": True}).encode()
+    inbound = iter([{"type": "http.request", "body": body, "more_body": False}])
+
+    async def receive():
+        return next(inbound, {"type": "http.disconnect"})
+
+    async def send(message):
+        if message["type"] == "http.response.start":
+            await asyncio.Event().wait()  # nobody is reading: the response never goes out
+
+    headers = [(b"content-type", b"application/json")]
+    headers += [(k.encode(), v.encode()) for k, v in api.headers.items()]
+    scope = {
+        "type": "http",
+        "http_version": "1.1",
+        "method": "POST",
+        "scheme": "http",
+        "path": "/api/v1/query",
+        "raw_path": b"/api/v1/query",
+        "query_string": b"",
+        "root_path": "",
+        "headers": headers,
+        "client": ("127.0.0.1", 1),
+        "server": ("t", 80),
+    }
+    await asyncio.wait_for(app(scope, receive, send), timeout=5)
+
+    assert app.state.admission.in_flight == 0, "the abandoned stream kept its admission slot"
+    again = await asyncio.wait_for(api.ask("Gone already?"), timeout=5)
+    assert again.json()["cached"] is False
 
 
 async def test_a_cache_outage_costs_latency_not_availability(api):
