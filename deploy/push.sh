@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Ship the working tree to the server and (re)build and start the stack.
-#   deploy/push.sh ubuntu@<server-ip>
+#   deploy/push.sh azureuser@<hostname>
 # Sends exactly the files git tracks or would track, so everything .gitignore excludes — .env,
 # data/, .venv — never leaves this machine.
 set -euo pipefail

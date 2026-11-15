@@ -3,9 +3,11 @@
 #
 #   docker compose -f docker-compose.yml -f docker-compose.prod.yml --profile app up -d --build
 #
-# Sized for a 4-core / 24 GB machine (Oracle Cloud Always Free, Ampere A1): two API replicas
-# behind Caddy, one worker, Postgres tuned for the memory. Secrets come from `.env`; see
-# deploy/env.production.example.
+# Sized for a 2-vCPU / 4 GiB VM (Azure Standard_B2als_v2) from measured use: an API replica idles
+# at ~180 MiB, the worker peaks at ~1.2 GiB parsing two PDFs at once (its `max_jobs`), Postgres
+# gets 512 MB of buffers. That leaves room for the OS and the optional observability profile.
+# On a bigger machine raise `api` replicas and the Postgres settings; Caddy finds new replicas
+# by itself. Secrets come from `.env`; see deploy/env.production.example.
 
 x-restart: &restart
   restart: unless-stopped
@@ -27,7 +29,7 @@ x-hardened: &hardened
 x-app-env: &app-env
   SYNAPTIX_ENV: prod
   SYNAPTIX_DATABASE_URL: postgresql+asyncpg://synaptix:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@db:5432/synaptix
-  # 3 app containers x (10 + 5) = 45 connections, well inside Postgres's 100.
+  # 2 app containers x (10 + 5) = 30 connections, well inside Postgres's 100.
   SYNAPTIX_DB_POOL_SIZE: "10"
   SYNAPTIX_DB_MAX_OVERFLOW: "5"
 
@@ -40,13 +42,13 @@ services:
     command:
       - postgres
       - -c
-      - shared_buffers=2GB
+      - shared_buffers=512MB
       - -c
-      - effective_cache_size=8GB
+      - effective_cache_size=1536MB  # a planner hint: what the OS page cache can hold
       - -c
-      - maintenance_work_mem=512MB  # HNSW index builds
+      - maintenance_work_mem=128MB  # index builds and vacuum
       - -c
-      - work_mem=16MB
+      - work_mem=8MB
 
   redis:
     <<: *restart
@@ -56,7 +58,7 @@ services:
     <<: *restart
     ports: !reset []
     command: ["redis-server", "--save", "", "--appendonly", "no",
-              "--maxmemory", "1gb", "--maxmemory-policy", "allkeys-lru"]
+              "--maxmemory", "128mb", "--maxmemory-policy", "allkeys-lru"]
 
   migrate:
     <<: *hardened
@@ -65,7 +67,7 @@ services:
   api:
     <<: [*restart, *hardened]
     ports: !reset []
-    mem_limit: 1g
+    mem_limit: 768m  # idles at ~180 MiB; an upload of up to 100 MB is held in memory while checked
     environment:
       <<: *app-env
       SYNAPTIX_CACHE_REDIS_URL: redis://cache:6379/0
@@ -75,11 +77,13 @@ services:
       # X-Forwarded-For and does not trust one sent by the client, so one hop is exactly right.
       SYNAPTIX_TRUSTED_PROXY_HOPS: "1"
     deploy:
-      replicas: 2
+      replicas: 1  # one per spare core: the worker's parser needs the other
 
   worker:
     <<: [*restart, *hardened]
-    mem_limit: 3g  # headroom for the PDF parser's child process (capped at 1.5 GB itself)
+    # Measured peak 1.2 GiB with two PDFs parsing at once. A PDF that pushes past this is the
+    # parser child's problem: the kernel kills the largest process, and the job fails cleanly.
+    mem_limit: 1536m
     environment: *app-env
 
   caddy:

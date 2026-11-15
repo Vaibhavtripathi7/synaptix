@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
-# One-time setup for a fresh Ubuntu server (written for Oracle Cloud's Ampere A1 image).
-# Idempotent: safe to run again. Usage, on the server:  bash deploy/bootstrap.sh
+# One-time setup for a fresh Ubuntu 24.04 server. Idempotent: safe to run again.
+# Usage, on the server:  bash deploy/bootstrap.sh
+# Inbound traffic is filtered by the cloud's network security group, not on the host, so this
+# opens no ports; see docs/deploy.md for the rules.
 set -euo pipefail
 
 # Docker Engine and the compose plugin, from Docker's own apt repository (Ubuntu's is too old
@@ -19,16 +21,21 @@ https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "$VERSION_C
   echo "Docker installed. Log out and back in once so the docker group applies."
 fi
 
-# Oracle's Ubuntu images reject every inbound connection except SSH in the host firewall, in
-# addition to the cloud's security list. Accept HTTP and HTTPS (TCP, and UDP for HTTP/3).
-open() {
-  sudo iptables -C INPUT -p "$1" --dport "$2" -j ACCEPT 2>/dev/null \
-    || sudo iptables -I INPUT 1 -p "$1" --dport "$2" -j ACCEPT
-}
-open tcp 80
-open tcp 443
-open udp 443
-if command -v netfilter-persistent >/dev/null; then sudo netfilter-persistent save; fi
+# A 2 GiB swap file as a safety net on a 4 GiB machine: a burst (two large uploads during two
+# parses) slows down instead of being killed. Low swappiness keeps it a last resort, so the
+# working set, Postgres's buffers above all, stays in RAM.
+if [ -z "$(swapon --show --noheadings)" ]; then
+  if [ ! -f /swapfile ]; then
+    sudo fallocate -l 2G /swapfile
+    sudo chmod 600 /swapfile
+    sudo mkswap /swapfile
+  fi
+  sudo swapon /swapfile
+  grep -q '^/swapfile ' /etc/fstab \
+    || echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab >/dev/null
+fi
+echo 'vm.swappiness = 10' | sudo tee /etc/sysctl.d/99-synaptix.conf >/dev/null
+sudo sysctl -q --system
 
 # Security patches applied automatically.
 sudo apt-get install -y unattended-upgrades >/dev/null

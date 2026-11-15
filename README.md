@@ -48,10 +48,10 @@ make worker                      # second terminal
 
 Fully containerised: `docker compose --profile app up --build`.
 
-**Deploy publicly, for free:** [`docs/deploy.md`](docs/deploy.md) puts the whole stack on one
-Oracle Cloud Always Free ARM machine behind Caddy with automatic HTTPS — only ports 80/443
-reachable, secrets in `.env`, migrations run once before the app starts, nightly backups. Users
-bring their own Gemini keys, so hosting costs nothing.
+**Deploy publicly:** [`docs/deploy.md`](docs/deploy.md) puts the whole stack on one 4 GiB Azure
+VM (covered by Azure for Students credit, no card needed) behind Caddy with automatic HTTPS —
+only ports 80/443 reachable, secrets in `.env`, migrations run once before the app starts,
+nightly backups. Users bring their own Gemini keys, so model calls cost the operator nothing.
 
 ### API in four calls
 
