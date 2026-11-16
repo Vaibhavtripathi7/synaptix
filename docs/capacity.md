@@ -10,7 +10,7 @@ A request either reaches the model or it does not, and the two differ by four or
 | | answered from our own state | reaches the model |
 |---|---|---|
 | examples | library listing, document pages, figures, **cached answers** | an uncached question |
-| cost | one Redis round trip, one indexed query | 3 model calls, **~17k input tokens**, 10–20 s |
+| cost | one Redis round trip, one indexed query | 3 model calls, **~17k input tokens**, 10-20 s |
 | scales with | API replicas | the model provider's capacity, and the caller's quota |
 
 The whole design follows from that split: keep the first kind cheap and stateless, and make as
@@ -28,8 +28,8 @@ pinned to 4 cores, load generator to the other 4, 64 connections, 15 s after a w
 | cached answer | 282 req/s | 610 req/s | 165 ms |
 
 An authenticated read pays for the workspace check, an atomic rate-limit script in Redis, an
-indexed query, and response validation. A cached answer is served from Redis alone — the
-workspace's library version, then the answer — which is why it now outruns a database read. Four processes do not reach 4× on this machine because Postgres and Redis share its
+indexed query, and response validation. A cached answer is served from Redis alone - the
+workspace's library version, then the answer - which is why it now outruns a database read. Four processes do not reach 4x on this machine because Postgres and Redis share its
 eight cores with the server and the load generator; on separate hosts, API replicas scale
 close to linearly, since they share no state.
 
@@ -39,18 +39,18 @@ Profiling first, then one change at a time, re-measured after each:
 
 | change | effect at 4 processes |
 |---|---|
-| list documents as plain rows instead of ORM entities | read throughput **396 → 634 req/s** |
-| drop `pool_pre_ping` (a round trip on every checkout); recycle connections by age instead | p99 **913 → 135 ms** together with the above |
-| pool sized to the concurrency a replica actually runs (5+10 → 20+10) | removed queueing for connections |
+| list documents as plain rows instead of ORM entities | read throughput **396 -> 634 req/s** |
+| drop `pool_pre_ping` (a round trip on every checkout); recycle connections by age instead | p99 **913 -> 135 ms** together with the above |
+| pool sized to the concurrency a replica actually runs (5+10 -> 20+10) | removed queueing for connections |
 | defer the `graph` column | listing no longer drags up to hundreds of KB per document out of Postgres |
-| answer cache hits served from Redis alone (per-workspace library version) | cached answers **434 → 610 req/s**, p99 196 → 165 ms; from 0.7× to 1.1× the throughput of a database read |
+| answer cache hits served from Redis alone (per-workspace library version) | cached answers **434 -> 610 req/s**, p99 196 -> 165 ms; from 0.7x to 1.1x the throughput of a database read |
 
 Runs vary by about 10% on this machine (the framework floor measured 8,631 and 7,316 req/s on
 different days), so compare rows within one run: `bench/results.md` holds the latest.
 
 Measured and **rejected**:
 
-- *Returning cached bytes without re-validating them.* 21× faster for that step (63 µs → 3 µs),
+- *Returning cached bytes without re-validating them.* 21x faster for that step (63 us -> 3 us),
   but that is ~1% of a 5 ms request. Not worth a second code path.
 - *docker-proxy on the published Postgres port.* Suspected; measured at under 2%.
 - *Re-enabling asyncpg's prepared-statement cache.* Worth ~12% of read throughput, but it breaks
@@ -80,17 +80,17 @@ Two properties keep that ceiling from being ours:
   with the number of users instead of being one shared allowance.
 - **Per-document work is computed once.** Study guides, summaries and entity graphs are stored
   after the first request and served as reads. Only free-form questions cost model time per
-  request — and repeats of those are cached, with identical concurrent questions coalesced into
+  request - and repeats of those are cached, with identical concurrent questions coalesced into
   a single model call.
 
 ## Scaling by order of magnitude
 
-Each stage lists the trigger — the metric that says it is time — rather than a date.
+Each stage lists the trigger - the metric that says it is time - rather than a date.
 
 **Up to ~500 req/s (now).** One Postgres, a queue Redis, a cache Redis, N API replicas behind a
 load balancer, workers scaled on `synaptix_queue_depth`.
-*Triggers for the next stage:* connections — each replica holds up to 30 (pool 20 + overflow
-10), so a fourth replica exceeds Postgres's default 100 — and **a second host**. On one machine
+*Triggers for the next stage:* connections - each replica holds up to 30 (pool 20 + overflow
+10), so a fourth replica exceeds Postgres's default 100 - and **a second host**. On one machine
 source PDFs and figures can live on a local volume; across machines they cannot, because a
 worker cannot read a file another host received. `SYNAPTIX_STORAGE_BACKEND=s3` moves them to any
 S3-compatible store (S3, R2, GCS interop), after which no state lives on an API or worker host

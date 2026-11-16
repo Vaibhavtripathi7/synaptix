@@ -1,13 +1,13 @@
 """Untrusted text inside prompts ("spotlighting").
 
-Everything taken from an uploaded document — passages, titles, headings, table text, and model
-output derived from them — may carry instructions written by whoever made the PDF ("ignore your
-instructions and…"). The model cannot tell data from instructions unless the prompt does, so:
+Everything taken from an uploaded document - passages, titles, headings, table text, and model
+output derived from them - may carry instructions written by whoever made the PDF ("ignore your
+instructions and..."). The model cannot tell data from instructions unless the prompt does, so:
 
 * each untrusted span is fenced with markers carrying a random per-call nonce;
 * the system prompt names that nonce and says everything inside the fences is data;
 * marker look-alikes inside the text are neutralised, so a document cannot close a fence early
-  or open a fake one — not even by guessing, since it cannot know the nonce in advance.
+  or open a fake one - not even by guessing, since it cannot know the nonce in advance.
 
 This lowers the odds of an injection working; it does not make them zero, and it is not relied
 on alone. What an injection could achieve is bounded elsewhere: the model has no tools, a

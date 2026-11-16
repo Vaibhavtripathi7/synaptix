@@ -116,8 +116,8 @@ VARIANTS = [
     ("dense only", True, False, None),
     ("BM25 only", False, True, None),
     ("hybrid (RRF)", True, True, None),
-    ("hybrid + rerank, 40 × 1200 chars (production)", True, True, (40, 1200)),
-    ("hybrid + rerank, 20 × 600 chars", True, True, (20, 600)),
+    ("hybrid + rerank, 40 x 1200 chars (production)", True, True, (40, 1200)),
+    ("hybrid + rerank, 20 x 600 chars", True, True, (20, 600)),
 ]
 
 

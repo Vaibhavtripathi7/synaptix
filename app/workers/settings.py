@@ -52,7 +52,7 @@ async def reap_stranded() -> None:
 
 async def purge_failed(ctx: dict) -> None:
     """Failed documents keep their source so a re-upload can retry. After a day nobody is
-    retrying — and on an anonymous service, an upload that fails after its file is stored (a fake
+    retrying - and on an anonymous service, an upload that fails after its file is stored (a fake
     key, say) is the cheapest way to fill a disk. Rows go first, then the files: a crash between
     the two leaves orphaned files, never rows pointing at nothing."""
     cutoff = datetime.now(UTC) - timedelta(hours=ctx["settings"].failed_retention_hours)
@@ -161,5 +161,5 @@ class WorkerSettings:
     max_jobs = 2  # parsing is CPU-bound; LLM stages are bounded by llm_concurrency
     job_timeout = JOB_TIMEOUT
     max_tries = 1  # a failed job is surfaced on its row, not retried blindly
-    # Job results include the job's arguments — a user's API key among them. Keep none.
+    # Job results include the job's arguments - a user's API key among them. Keep none.
     keep_result = 0

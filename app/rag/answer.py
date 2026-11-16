@@ -1,7 +1,7 @@
 """Question answering over ingested documents.
 
-    question ─► (expand) ─► embed ─► hybrid search ─► rerank ─► context ─► Gemini ─► tokens
-                                                                            └─► citations
+    question -> (expand) -> embed -> hybrid search -> rerank -> context -> Gemini -> tokens
+                                                                            `-> citations
 
 Citations are `[n]` markers that refer to the numbered passages the model was shown; the
 passages are returned alongside the answer so a client can resolve them to page/element."""

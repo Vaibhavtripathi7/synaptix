@@ -161,7 +161,7 @@ async def test_nothing_is_queued_when_no_key_is_available(client, small_pdf, mon
 
 async def test_filtered_vector_search_does_not_starve_a_tenant(db):
     """B's chunks cluster where the query points, A's sit on the far side. When the planner
-    picks the HNSW index — as it does for large tenants — the index yields its ef_search nearest
+    picks the HNSW index - as it does for large tenants - the index yields its ef_search nearest
     vectors globally and the tenant filter runs afterwards, so A loses results it plainly has.
     The control query shows the collapse is real here; hybrid_search must not suffer it."""
     rng = random.Random(7)

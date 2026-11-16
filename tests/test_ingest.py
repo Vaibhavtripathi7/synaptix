@@ -49,7 +49,7 @@ def test_sections_follow_heading_hierarchy_and_title_is_root():
         ["Doc", "B"],
         ["Doc"],
     ]
-    assert (secs[2].page_start, secs[2].page_end) == (1, 2)  # heading page → last body page
+    assert (secs[2].page_start, secs[2].page_end) == (1, 2)  # heading page -> last body page
 
 
 def test_chunks_respect_budget_and_isolate_tables_and_figures():

@@ -1,4 +1,4 @@
-"""Entity–relation graph of a document, extracted per batch of sections and merged.
+"""Entity-relation graph of a document, extracted per batch of sections and merged.
 Rendered client-side; also a compact map of what a document is about."""
 
 import asyncio

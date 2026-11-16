@@ -1,6 +1,6 @@
 """Make non-text content retrievable: figure descriptions, table summaries, OCR for scans.
 
-Scanned pages are transcribed in batches — several page images in one request — because a
+Scanned pages are transcribed in batches - several page images in one request - because a
 vision call per page is both the dominant cost of ingesting a scanned document and the fastest
 way to exhaust a per-minute request quota. Each image is labelled in the prompt and the model
 returns one indexed entry per page, so a batch cannot silently misalign.

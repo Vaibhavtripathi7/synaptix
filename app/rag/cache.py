@@ -1,13 +1,13 @@
 """Answer cache with per-replica request coalescing.
 
 A model call dominates both latency (seconds) and cost (tens of thousands of tokens), and
-questions repeat — a class asks its lecture notes the same things. An answer is keyed on exactly
+questions repeat - a class asks its lecture notes the same things. An answer is keyed on exactly
 what determines it: the workspace's *library version*, the documents asked about, the normalised
 question, the style, and the model and retrieval configuration.
 
 The library version is what keeps a hit off Postgres. It is a random token per workspace, kept in
-this Redis; any change to what the workspace can search — a document becoming ready, a document
-deleted — deletes it, and the next request mints a new one on the database path. So a hit needs
+this Redis; any change to what the workspace can search - a document becoming ready, a document
+deleted - deletes it, and the next request mints a new one on the database path. So a hit needs
 no database read, and a stale answer is unreachable the moment its library changes: it is stored
 under a version nobody will ask for again. Random rather than a counter because this Redis evicts:
 a counter evicted back to zero would collide with old entries, a random token never repeats.
@@ -21,7 +21,7 @@ a distributed lock on the hot path.
 The cache fails open: if its Redis is unreachable every lookup is a miss and answers are simply
 computed, so a cache outage costs latency, never availability. One failure is not free: an
 invalidation that cannot reach Redis leaves the old version in place, so versions expire after
-`_VERSION_TTL_S` — that bounds how long a missed invalidation can serve answers from before a
+`_VERSION_TTL_S` - that bounds how long a missed invalidation can serve answers from before a
 change. For the same reason the cache is not part of readiness: a cache blip must not pull every
 replica out of the load balancer at once.
 
@@ -170,7 +170,7 @@ class AnswerCache:
 
 async def invalidate_library(redis, workspace: str) -> None:
     """Called after a change to what `workspace` can search has been committed: a document ready,
-    a document deleted. Must run after the commit — before it, a request could re-mint a version
+    a document deleted. Must run after the commit - before it, a request could re-mint a version
     over the old state. A failure is logged, and bounded by the version's expiry."""
     try:
         await redis.delete(f"lib:{workspace}")

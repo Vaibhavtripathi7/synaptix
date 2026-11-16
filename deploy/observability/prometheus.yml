@@ -1,5 +1,5 @@
 # Scrapes every API replica and every worker on the compose network. Replicas are discovered
-# through Docker's DNS — one A record per container — so scaling `api` or `worker` needs no
+# through Docker's DNS - one A record per container - so scaling `api` or `worker` needs no
 # change here. The metrics ports are never published outside that network.
 global:
   scrape_interval: 15s

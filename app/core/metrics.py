@@ -1,8 +1,8 @@
 """Prometheus metrics.
 
 One process per container, scaled by adding replicas: the default single-process registry is
-therefore correct and there is no multiprocess mode to misconfigure. Labels are bounded —
-route templates rather than raw paths, model names from config — because a label taking
+therefore correct and there is no multiprocess mode to misconfigure. Labels are bounded -
+route templates rather than raw paths, model names from config - because a label taking
 unbounded values (a UUID, a scanner's probe path) creates a time series per value and takes
 the metrics backend down with it."""
 

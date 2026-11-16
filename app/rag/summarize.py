@@ -26,7 +26,7 @@ _REDUCE = (
 
 
 def _fenced(llm: Gemini, instruction: str, text: str, label: str):
-    """Document text — and partial summaries written from it — goes to the model fenced."""
+    """Document text - and partial summaries written from it - goes to the model fenced."""
     fence = Fence()
     return llm.generate(
         instruction + fence.wrap(text, label), system=fence.rule.strip(), think=True

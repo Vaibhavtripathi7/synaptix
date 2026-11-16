@@ -1,7 +1,7 @@
 """A fake Gemini REST API, served through `httpx.MockTransport`.
 
 The real google-genai SDK builds its real requests and parses real-shaped responses, so the code
-under test — failover, rate-limit waits, token accounting, structured output, streaming — runs
+under test - failover, rate-limit waits, token accounting, structured output, streaming - runs
 exactly as in production, with no network and no quota. Wire formats were taken from the requests
 the SDK actually sends (generateContent, streamGenerateContent?alt=sse, batchEmbedContents).
 

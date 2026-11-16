@@ -46,7 +46,7 @@ class ElementKind(StrEnum):
 
 
 class AnalysisKind(StrEnum):
-    study_guide = "study_guide"  # outline → practice questions, over one document
+    study_guide = "study_guide"  # outline -> practice questions, over one document
     comparison = "comparison"  # two documents compared
 
 
@@ -170,7 +170,7 @@ class Chunk(Base):
 
 
 class AnalysisRun(Base):
-    """One execution of an analysis DAG over one or two documents; result is stage → JSON."""
+    """One execution of an analysis DAG over one or two documents; result is stage -> JSON."""
 
     __tablename__ = "analysis_runs"
     __mapper_args__ = {"eager_defaults": True}

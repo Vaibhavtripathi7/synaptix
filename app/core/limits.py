@@ -1,5 +1,5 @@
 """Protection for a shared, horizontally scaled API: per-workspace rate limits and per-replica
-admission control. They fail differently on purpose — a rate limit is the caller's problem
+admission control. They fail differently on purpose - a rate limit is the caller's problem
 (429, try later), a full replica is the platform's (503, retry elsewhere)."""
 
 import hashlib
@@ -10,7 +10,7 @@ from fastapi import HTTPException
 from app.core.settings import get_settings
 
 # Token buckets, evaluated atomically in Redis so N replicas enforce one limit, not N. Several
-# buckets are checked in one call — the workspace's and the client IP's — and tokens are taken
+# buckets are checked in one call - the workspace's and the client IP's - and tokens are taken
 # from none unless all allow: a request refused by its IP limit must not also spend its
 # workspace's allowance. Time comes from Redis's clock: replica clocks drift, and a bucket refilled
 # by a fast clock leaks capacity.

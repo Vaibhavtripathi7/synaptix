@@ -1,6 +1,6 @@
 """Structure-aware chunking.
 
-Sections follow the heading hierarchy (title → h1 → h2 …). Within a section, prose blocks are
+Sections follow the heading hierarchy (title -> h1 -> h2 ...). Within a section, prose blocks are
 packed into token-bounded windows with token overlap; each table and figure is its own chunk so
 a hit maps to one concrete element. Every chunk is prefixed with its heading path, which gives
 the embedding the context a bare paragraph lacks.

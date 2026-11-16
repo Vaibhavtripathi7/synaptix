@@ -27,7 +27,7 @@ async def test_hybrid_fuses_dense_and_sparse_and_expands_to_section(seeded):
 
 
 async def test_answerer_retrieve_with_stub_models(seeded):
-    """Covers the retrieve() → search() → context path without any model calls."""
+    """Covers the retrieve() -> search() -> context path without any model calls."""
     from app.core.settings import get_settings
     from app.rag.answer import Answerer
     from app.retrieval.rerank import NoReranker
@@ -64,7 +64,7 @@ async def test_keyword_search_matches_questions_not_just_exact_term_sets(seeded)
 
 async def test_search_with_several_query_variants(seeded):
     """Query expansion sends three variants. A local once shadowed the `sparse` flag, so every
-    variant after the first crashed — only multi-variant searches exposed it."""
+    variant after the first crashed - only multi-variant searches exposed it."""
     async with SessionLocal() as s:
         variants = [
             ("isochrone drawbacks", _vec(2)),

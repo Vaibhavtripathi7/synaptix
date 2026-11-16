@@ -1,4 +1,4 @@
-"""PDF → ordered, typed, bbox-anchored blocks using PyMuPDF's layout model.
+"""PDF -> ordered, typed, bbox-anchored blocks using PyMuPDF's layout model.
 
 Headers/footers are dropped (retrieval noise). Figures are rasterised by clipping the page to
 the detected bbox, which also captures vector drawings that xref-based extraction misses.
@@ -23,9 +23,7 @@ _HEADING_RE = re.compile(r"^(#+)\s*(.*?)\s*$", re.S)
 @dataclass(slots=True)
 class Block:
     page: int  # 1-based
-    role: (
-        str  # layout class: title, section-header, text, list-item, caption, table, picture, scan…
-    )
+    role: str  # layout class, e.g. title, section-header, text, caption, table, picture, scan
     kind: ElementKind
     content: str  # markdown; empty for figures until enriched
     bbox: tuple[float, float, float, float] | None
@@ -105,7 +103,7 @@ def explode_scans(blocks: list[Block]) -> list[Block]:
     """A scanned page is OCR'd as one Markdown blob, so the layout model never saw its headings.
     Split that Markdown back into heading and text blocks: the document regains its hierarchy,
     which sections, chunk heading paths and citation granularity all depend on. The page render
-    is dropped — the source PDF is what gets displayed, so keeping it would only cost storage."""
+    is dropped - the source PDF is what gets displayed, so keeping it would only cost storage."""
     out: list[Block] = []
     for b in blocks:
         if b.role != "scan" or not b.content.strip():

@@ -1,7 +1,7 @@
 """Executes an AnalysisRun.
 
-study_guide: outline(mapped over every chunk)  →  practice(outline, facets)
-comparison:  facets(doc A) + facets(doc B)  →  comparison
+study_guide: outline(mapped over every chunk)  ->  practice(outline, facets)
+comparison:  facets(doc A) + facets(doc B)  ->  comparison
 
 Results are stored as JSON with the passages each stage used, so a client can resolve every
 `evidence` number to a page range of the source document."""

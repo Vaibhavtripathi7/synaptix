@@ -44,7 +44,7 @@ services:
   # S3-compatible object storage for development and tests (`--profile s3`): versitygw, which
   # validates SigV4 signatures as S3 does, so a signing bug fails here rather than in production.
   # (MinIO no longer publishes community images.) In production, point SYNAPTIX_S3_* at the real
-  # service — S3, R2, GCS interop — instead.
+  # service - S3, R2, GCS interop - instead.
   s3:
     image: versity/versitygw:v1.8.0
     profiles: [s3]

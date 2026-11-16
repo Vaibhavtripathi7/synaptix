@@ -2,9 +2,9 @@
 
 Two backends behind one interface:
 
-* `LocalStorage` — a directory. Right while API and workers share a machine; wrong the moment
+* `LocalStorage` - a directory. Right while API and workers share a machine; wrong the moment
   they don't, because a worker cannot read a file another host received.
-* `S3Storage` — any S3-compatible service (AWS S3, Cloudflare R2, GCS's S3 interface, MinIO).
+* `S3Storage` - any S3-compatible service (AWS S3, Cloudflare R2, GCS's S3 interface, MinIO).
   Talks the S3 REST API directly over the httpx client already in the dependency tree and signs
   requests with AWS Signature V4 (a few dozen lines of stdlib HMAC), rather than adding boto3,
   which is synchronous, or aioboto3, which brings all of botocore. The signer is checked against
@@ -177,7 +177,7 @@ class S3Storage:
         )
         if r.status_code >= 300 and r.status_code != 404:
             raise RuntimeError(
-                f"S3 {method} {urlsplit(url).path} → {r.status_code}: {r.text[:300]}"
+                f"S3 {method} {urlsplit(url).path} -> {r.status_code}: {r.text[:300]}"
             )
         return r
 

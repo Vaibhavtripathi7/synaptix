@@ -1,24 +1,24 @@
 # Synaptix
 
 A study and research workbench built on production RAG. Put your lecture notes, slides and
-papers in one corpus and ask questions across them — including **scanned and handwritten pages**,
+papers in one corpus and ask questions across them - including **scanned and handwritten pages**,
 which are transcribed to Markdown and LaTeX by a vision model and indexed like everything else.
 Every answer cites the page it came from, and clicking a citation highlights that exact block on
 the rendered page. Study guides are built from every chunk of the document and comparisons from
-targeted retrieval on each paper — never from a truncated document dump — and every point they
+targeted retrieval on each paper - never from a truncated document dump - and every point they
 make links back to its evidence.
 
 Most "chat with your PDF" tools read the text layer and return nothing useful for a scanned
 notebook. This one answered a phase-relationship question from handwritten AC-circuit notes,
-in rendered LaTeX, citing pages 1–3.
+in rendered LaTeX, citing pages 1-3.
 
 ## Architecture
 
 ```
-browser (web/)  ──►  FastAPI (app/api)  ──►  Postgres 17 + pgvector  ◄──  arq worker (app/workers)
-   │ pdf.js page      │ documents · query · analyses      ▲                   ├─ ingest: parse → OCR/enrich → chunk → embed
-   │ + highlights      │ SSE answers · graph · summary     │                   └─ analyze: outline → practice questions
-   └──────────────────┴── bearer-key auth · request ids · access log · /healthz /readyz
+browser (web/)  -->  FastAPI (app/api)  -->  Postgres 17 + pgvector  <--  arq worker (app/workers)
+   | pdf.js page      | documents, query, analyses        ^                   |- ingest: parse -> OCR/enrich -> chunk -> embed
+   | + highlights     | SSE answers, graph, summary       |                   `- analyze: outline -> practice questions
+   +------------------+-- bearer-key auth, request ids, access log, /healthz /readyz
 ```
 
 | Layer | Choice | Why |
@@ -49,7 +49,7 @@ make worker                      # second terminal
 Fully containerised: `docker compose --profile app up --build`.
 
 **Deploy publicly:** [`docs/deploy.md`](docs/deploy.md) puts the whole stack on one 4 GiB Azure
-VM (covered by Azure for Students credit, no card needed) behind Caddy with automatic HTTPS —
+VM (covered by Azure for Students credit, no card needed) behind Caddy with automatic HTTPS -
 only ports 80/443 reachable, secrets in `.env`, migrations run once before the app starts,
 nightly backups. Users bring their own Gemini keys, so model calls cost the operator nothing.
 
@@ -61,11 +61,11 @@ Gemini key:
 ```sh
 export H1="x-workspace: $(python3 -c 'import secrets; print(secrets.token_urlsafe(32))')"
 export H2="x-gemini-key: $GEMINI_API_KEY"
-curl -H "$H1" -H "$H2" -F file=@paper.pdf localhost:8000/api/v1/documents   # 202 → queued … ready
+curl -H "$H1" -H "$H2" -F file=@paper.pdf localhost:8000/api/v1/documents   # 202 -> queued ... ready
 curl localhost:8000/api/v1/query -H "$H1" -H "$H2" -H 'content-type: application/json' \
   -d '{"question": "What does it conclude about genetic algorithms?", "document_ids": ["<id>"]}'
   # {"answer": "... [1][3]", "passages": [{"n": 1, "page_start": 13, "heading_path": [...], "chunk_ids": [...]}]}
-  # "stream": true → Server-Sent Events: passages, token…, done
+  # "stream": true -> Server-Sent Events: passages, token..., done
 curl -X POST localhost:8000/api/v1/analyses -H "$H1" -H "$H2" -H 'content-type: application/json' \
   -d '{"kind": "study_guide", "document_ids": ["<id>"]}'                  # or "comparison" with two ids
 curl -X POST -H "$H1" -H "$H2" localhost:8000/api/v1/documents/<id>/graph   # entity graph, cached
@@ -83,7 +83,7 @@ Synaptix is built to be hosted for strangers at zero model cost to the operator:
   library: every document, chunk, figure and analysis is scoped to it, through one ownership check
   that every route shares. Only its SHA-256 is stored, so a database copy grants no access. A
   document in another workspace is reported as missing, not forbidden. Upload dedupe is per
-  workspace — a global content hash would hand one tenant's upload to another.
+  workspace - a global content hash would hand one tenant's upload to another.
 - **Bring your own key.** The user's Gemini key lives in their browser and travels as a header.
   For ingestion it rides the job payload as a `SecretStr`, whose repr is masked (arq logs job
   arguments). Redis runs without persistence and the worker keeps no job results, so the key is
@@ -96,8 +96,8 @@ Synaptix is built to be hosted for strangers at zero model cost to the operator:
 - **Filtered vector search that doesn't starve.** HNSW returns the nearest vectors *globally* and
   applies the tenant filter afterwards, so a workspace that is a sliver of the table can get fewer
   results than it has. Searches run with pgvector's iterative index scan (`strict_order`). The test
-  suite forces the index plan and shows the collapse — 4 of 10 results for a tenant holding 1,000
-  matching chunks — then shows search returning all 10.
+  suite forces the index plan and shows the collapse - 4 of 10 results for a tenant holding 1,000
+  matching chunks - then shows search returning all 10.
 - **No locks held across model calls.** A read transaction left open during a multi-second LLM call
   keeps its table locks; a migration queued behind them then blocks every other query. Every
   retrieval path closes its transaction before calling a model, a test asserts it, and migrations
@@ -109,7 +109,7 @@ guarantee it covers and confirming the test fails.
 ### Retrieval, in one paragraph
 
 A question is paraphrased into two extra queries (grounded in the corpus titles), all three are
-embedded, and each runs a dense (pgvector cosine, HNSW) and a sparse (full-text, GIN) search —
+embedded, and each runs a dense (pgvector cosine, HNSW) and a sparse (full-text, GIN) search -
 the sparse one with OR semantics, since an ablation showed the usual AND-of-all-terms query
 matching no chunk at all for a typical question. The six rankings are fused with
 reciprocal rank fusion, the top 40 are graded listwise by the LLM (or a local cross-encoder),
@@ -121,8 +121,8 @@ heading paths and element kinds.
 
 Every agent returns a Pydantic model whose items list the passage numbers they rest on, and
 numbers the model was never shown are dropped before the result is stored. A study guide runs in
-two stages, `outline → practice`. The outline must not miss anything, so it maps over *every*
-chunk of the document in batches and merges the fragments — top-k retrieval would drop the tail
+two stages, `outline -> practice`. The outline must not miss anything, so it maps over *every*
+chunk of the document in batches and merges the fragments - top-k retrieval would drop the tail
 by construction. Practice questions are then set from the concepts actually extracted, using
 retrieval *facets* (e.g. "worked examples, solved problems and numerical calculations"). A paper
 comparison retrieves the same facets from each paper. A stage that finds nothing returns an empty
@@ -134,7 +134,7 @@ stage used, so results stay auditable.
 Vision OCR is the dominant cost of ingesting scanned material, so scanned pages are transcribed
 in batches of `SYNAPTIX_OCR_BATCH_PAGES` (default 6) images per request, each labelled so the
 model's indexed replies cannot misalign. On a 33-page handwritten deck that is 7 requests instead
-of 33 — the difference between "fits in the free tier" and "does not". Pages that already have a
+of 33 - the difference between "fits in the free tier" and "does not". Pages that already have a
 text layer never reach a vision model at all.
 
 ### Resilience
@@ -164,14 +164,14 @@ through Docker's DNS, so scaling needs no config change. The dashboard reads top
 incident is debugged: traffic, errors and tail latency; then routes, status codes and the answer
 cache; then model calls, latency and tokens; then jobs and ingestion stages. Nine alert rules
 each name the action to take, and are unit-tested with `promtool` against synthetic series in
-both directions — they fire on their condition and stay quiet otherwise (`make alerts-test`, also
+both directions - they fire on their condition and stay quiet otherwise (`make alerts-test`, also
 in CI).
 
-**Capacity.** One replica serves ~250–280 authenticated reads/s and ~280 cached answers/s per core;
-an uncached question costs ~17k input tokens and 10–20 s, 84% of it in reranking.
-[`docs/capacity.md`](docs/capacity.md) turns the measurements into a scaling plan — per-replica
+**Capacity.** One replica serves ~250-280 authenticated reads/s and ~280 cached answers/s per core;
+an uncached question costs ~17k input tokens and 10-20 s, 84% of it in reranking.
+[`docs/capacity.md`](docs/capacity.md) turns the measurements into a scaling plan - per-replica
 throughput, where each wall is, what changes at each order of magnitude and the metric that
-triggers it — including why a literal million uncached questions per second is out of reach for
+triggers it - including why a literal million uncached questions per second is out of reach for
 any design, and what the architecture does instead. `uv run python -m bench.run` reproduces the
 throughput numbers.
 
@@ -200,8 +200,8 @@ make test                 # unit tests + DB-backed retrieval tests (skipped if P
 make lint                 # ruff
 uv run python -m eval.run            # retrieval metrics on eval/golden.jsonl (hit@k, MRR, terms)
 uv run python -m eval.run --answers  # also generate answers and grade faithfulness/correctness
-uv run python -m eval.run --ablation # dense vs BM25 vs hybrid vs reranked → eval/ablation.md
-uv run python -m bench.run           # per-replica throughput, CPU-pinned → bench/results.md
+uv run python -m eval.run --ablation # dense vs BM25 vs hybrid vs reranked -> eval/ablation.md
+uv run python -m bench.run           # per-replica throughput, CPU-pinned -> bench/results.md
 uv sync --extra local     # adds sentence-transformers for local embeddings / reranking
 ```
 

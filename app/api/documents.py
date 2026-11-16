@@ -140,7 +140,7 @@ async def upload(
 
 @router.get("", response_model=list[DocumentOut], dependencies=[ReadLimit])
 async def list_documents(workspace: WorkspaceDep, session: SessionDep) -> list:
-    """Hot path — the UI polls it. Selects exactly the columns returned, as plain rows: building
+    """Hot path - the UI polls it. Selects exactly the columns returned, as plain rows: building
     ORM entities was the dominant per-request cost (measured, docs/capacity.md)."""
     columns = [getattr(Document, name) for name in DocumentOut.model_fields]
     result = await session.execute(
@@ -182,8 +182,8 @@ async def get_figure(
     session: SessionDep,
     storage: StorageDep,
 ) -> Response:
-    # Figure names are always p<page>_<index>.png. Anything else — dot segments, encoded
-    # separators — could address another document's object once keys reach a bucket.
+    # Figure names are always p<page>_<index>.png. Anything else - dot segments, encoded
+    # separators - could address another document's object once keys reach a bucket.
     if not _FIGURE_NAME.fullmatch(name):
         raise HTTPException(404, "figure not found")
     await owned_document(session, workspace, document_id)

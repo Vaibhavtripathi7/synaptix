@@ -21,7 +21,7 @@ class Settings(BaseSettings):
     redis_url: str = "redis://localhost:6380/0"  # job queue: must never evict
     cache_redis_url: str = "redis://localhost:6381/0"  # answer cache: allkeys-lru, may evict
     answer_cache_ttl_s: int = 86_400  # 0 disables the cache
-    # Blob storage. `local` is a directory — fine while API and workers share a machine. `s3` is
+    # Blob storage. `local` is a directory - fine while API and workers share a machine. `s3` is
     # any S3-compatible service (AWS S3, Cloudflare R2, GCS interop, MinIO), needed once they
     # don't. Path-style addressing: the endpoint plus the bucket name.
     storage_backend: Literal["local", "s3"] = "local"
@@ -82,7 +82,7 @@ class Settings(BaseSettings):
     # 0 trusts nobody and uses the socket peer. Set this too high and clients can forge their IP.
     trusted_proxy_hops: int = 0
     # USD per million tokens, (input, output), keyed by model. Empty: usage is reported in
-    # tokens only — prices change and a stale default would report a confident wrong number.
+    # tokens only - prices change and a stale default would report a confident wrong number.
     llm_prices_per_mtok: dict[str, tuple[float, float]] = {}
 
     # Retrieval stack. `local` variants need the optional `sentence-transformers` extra.

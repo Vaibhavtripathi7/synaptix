@@ -4,7 +4,7 @@
 
 What it measures, and what it deliberately does not: the model is an external service whose
 throughput is set by the provider and the caller's quota, not by this code, so it is out of
-scope. The paths measured are the ones this system owns — the framework floor, an authenticated
+scope. The paths measured are the ones this system owns - the framework floor, an authenticated
 database read, and a question answered from the cache (auth, per-workspace rate limit in Redis,
 document lookup, cache read, response). Those set how many replicas a given load needs.
 
@@ -13,7 +13,7 @@ nothing is installed on the host) to cores 4-7, so the client does not steal the
 Production settings: JSON logs, no uvicorn access log. Rate limits are lifted: this measures
 capacity, not policy (the limiter's own cost is still paid on every request).
 
-The benchmark must never reach the model — one cache miss would otherwise spend real quota. Three
+The benchmark must never reach the model - one cache miss would otherwise spend real quota. Three
 guards: requests carry a dummy per-request key, so no real key is ever selected; the server runs
 behind a dead HTTPS proxy, so any HTTP call it tries fails locally; and afterwards the server's
 own metrics are read, and any model call attempted fails the run."""
@@ -44,7 +44,7 @@ OUT = Path(__file__).with_name("results.md")
 
 async def seed(token: str) -> str:
     """A ready document in a fresh workspace, and a cached answer for QUESTION about it under the
-    workspace's library version — what a first, computed answer would have left behind."""
+    workspace's library version - what a first, computed answer would have left behind."""
     settings = get_settings()
     workspace = hashlib.sha256(token.encode()).hexdigest()
     async with SessionLocal() as s:
@@ -164,7 +164,7 @@ def load(path: str, token: str, body: str | None = None) -> dict:
 
 
 def assert_no_model_calls() -> None:
-    """Any model call attempted means a cache miss reached the model path — and the numbers
+    """Any model call attempted means a cache miss reached the model path - and the numbers
     measured would not be the cached path's numbers either."""
     metrics = urllib.request.urlopen("http://127.0.0.1:9110/metrics", timeout=5).read().decode()
     calls = [line for line in metrics.splitlines() if line.startswith("synaptix_llm_calls_total{")]

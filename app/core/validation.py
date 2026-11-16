@@ -14,8 +14,8 @@ from urllib.parse import quote
 # huge header cannot be used to make every request hash megabytes.
 WORKSPACE_TOKEN = re.compile(r"[A-Za-z0-9_-]{32,256}")
 
-# Google AI Studio keys ("AIza…", 39 chars) and the newer dotted format ("AQ.…"). This checks
-# shape only — whether a key works is known on first use — but it keeps junk out of job payloads.
+# Google AI Studio keys ("AIza...", 39 chars) and the newer dotted ones ("AQ." prefix). This checks
+# shape only - whether a key works is known on first use - but it keeps junk out of job payloads.
 GEMINI_KEY = re.compile(r"[A-Za-z0-9_.-]{20,200}")
 
 # A client-supplied request id is echoed into every log line and a response header.

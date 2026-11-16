@@ -1,4 +1,4 @@
-"""Ingestion job: parse → enrich → chunk → embed → persist. Status is committed after each stage
+"""Ingestion job: parse -> enrich -> chunk -> embed -> persist. Status is committed after each stage
 so the API can report progress; failure records the error and leaves the source PDF in place."""
 
 import asyncio

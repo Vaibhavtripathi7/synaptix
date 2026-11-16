@@ -141,7 +141,7 @@ async def test_an_answer_about_a_deleted_document_is_never_served(api):
 async def test_a_library_change_makes_old_answers_unreachable(api, cache_redis):
     """What the worker does when a document becomes ready: invalidate the workspace's library.
     Two questions, because the failure is subtle: if the next request re-minted the *same*
-    version (a counter reset, a fixed token), asking Q1 would recompute Q1 — but Q2's
+    version (a counter reset, a fixed token), asking Q1 would recompute Q1 - but Q2's
     pre-change answer would become reachable again and be served stale."""
     from app.rag.cache import invalidate_library
 
@@ -155,7 +155,7 @@ async def test_a_library_change_makes_old_answers_unreachable(api, cache_redis):
 
 async def test_an_evicted_version_costs_a_miss_not_a_stale_answer(api, cache_redis):
     """The cache Redis evicts. Losing the version must fall back to the database path and mint
-    a new one — never reuse an old version and resurrect old answers."""
+    a new one - never reuse an old version and resurrect old answers."""
     await api.ask("What is bandwidth?")
     await cache_redis.delete(f"lib:{api.workspace}")
     assert (await api.ask("What is bandwidth?")).json()["cached"] is False

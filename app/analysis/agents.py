@@ -2,9 +2,9 @@
 
 Two shapes of agent, because two shapes of question:
 
-* **Retrieval** (`run_agent`) — for outputs answering a question about the material. Facet hits
+* **Retrieval** (`run_agent`) - for outputs answering a question about the material. Facet hits
   are unioned into one budgeted, numbered context, so the model sees the *relevant* parts.
-* **Coverage** (`run_mapped_agent`) — for outputs that must not miss anything, like a study
+* **Coverage** (`run_mapped_agent`) - for outputs that must not miss anything, like a study
   guide. Retrieval is the wrong primitive there: top-k by definition drops the tail. Instead
   every chunk of the document is numbered once and mapped over in batches, and the fragments
   are merged. Passage numbers stay global across batches, so `evidence` still resolves.
@@ -35,7 +35,7 @@ _CITE_RULE = (
     " Work only from the numbered passages and list the passage numbers you used in each "
     "`evidence`. If the passages do not cover a category, return an empty list for it rather "
     "than inventing content. Write every symbol, subscript and expression as LaTeX between "
-    "$ delimiters — $B_L$, not B_L — so it renders."
+    "$ delimiters ($B_L$, not B_L) so it renders."
 )
 
 
@@ -107,7 +107,7 @@ async def gather_context(
 
     All facets are embedded in a single request, then searched one after another: a session
     owns one connection, which cannot run queries concurrently. No query expansion and no
-    reranker — a facet is already a single intent, and RRF order is good enough for a union.
+    reranker - a facet is already a single intent, and RRF order is good enough for a union.
     The read transaction is closed before returning, because the caller calls a model next."""
     vectors = await answerer.embedder.embed_documents(list(facets))
     best: dict[uuid.UUID, Hit] = {}
@@ -279,8 +279,8 @@ def _prompt(fence: Fence, passages: list[Passage], inputs: dict[str, BaseModel] 
 
 def _checked(output: BaseModel, passages: list[Passage]) -> BaseModel:
     """Model output is validated before anyone sees it: an evidence number must name a passage
-    the model was shown. Anything else — a hallucination, or an injection pointing citations
-    somewhere else — is dropped rather than stored."""
+    the model was shown. Anything else - a hallucination, or an injection pointing citations
+    somewhere else - is dropped rather than stored."""
     allowed = {p.n for p in passages}
     for field in type(output).model_fields:
         for item in getattr(output, field) if isinstance(getattr(output, field), list) else []:

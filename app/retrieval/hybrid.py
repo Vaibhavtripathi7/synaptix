@@ -70,7 +70,7 @@ async def hybrid_search(
             continue
 
         # OR, not AND. websearch_to_tsquery ANDs every term, so a natural-language question only
-        # matched chunks containing all of its words — measured: zero chunks for a typical
+        # matched chunks containing all of its words - measured: zero chunks for a typical
         # question, sparse hit rate 0.19. Keyword retrieval wants BM25's behaviour: any term may
         # match and ranking sorts it out, so the parsed terms are rejoined with |.
         tsq = cast(

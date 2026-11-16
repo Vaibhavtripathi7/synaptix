@@ -28,8 +28,8 @@ def _generous_ip_limits(monkeypatch):
 def _no_model_network(monkeypatch):
     """Tests must never reach a paid model API: a stray call spends someone's real quota.
 
-    Two layers, because the first alone once let a request through — the SDK's HTTP stack
-    (httpx → httpcore → anyio) IDNA-encodes the hostname, so it arrives here as bytes:
+    Two layers, because the first alone once let a request through - the SDK's HTTP stack
+    (httpx -> httpcore -> anyio) IDNA-encodes the hostname, so it arrives here as bytes:
       1. resolving a Google API host fails the test, str or bytes;
       2. connecting anywhere but loopback or a private network fails the test, whatever the
          resolver, library or hostname. Tests only ever need the local Postgres and Redis."""

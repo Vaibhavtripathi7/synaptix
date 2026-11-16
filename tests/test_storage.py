@@ -93,14 +93,14 @@ async def storage(request, tmp_path):
 
 
 async def _serve(response, range_header: str | None = None) -> tuple[int, dict, bytes]:
-    """Runs a Response as ASGI and collects it — FileResponse reads Range from the scope."""
+    """Runs a Response as ASGI and collects it - FileResponse reads Range from the scope."""
     headers = [(b"range", range_header.encode())] if range_header else []
     scope = {"type": "http", "method": "GET", "headers": headers, "path": "/"}
     messages = []
     delivered = False
 
     async def receive():
-        # Like a real server: the (empty) body once, then block until the response finishes —
+        # Like a real server: the (empty) body once, then block until the response finishes -
         # Starlette listens for a disconnect while streaming, and an instant reply spins it.
         nonlocal delivered
         if not delivered:

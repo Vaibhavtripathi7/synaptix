@@ -26,7 +26,7 @@ def _queue(request: Request) -> ArqRedis:
 def _workspace(x_workspace: Annotated[str | None, Header()] = None) -> str:
     """Resolves the caller's workspace from its token.
 
-    The token is a bearer capability — whoever holds it owns the library — so it must be long
+    The token is a bearer capability - whoever holds it owns the library - so it must be long
     and random (the UI generates 256 bits). Only its SHA-256 is stored and compared: a copy of
     the database does not grant access to anyone's documents."""
     if not x_workspace or not WORKSPACE_TOKEN.fullmatch(x_workspace):
@@ -38,7 +38,7 @@ def _workspace(x_workspace: Annotated[str | None, Header()] = None) -> str:
 
 def _gemini_key(x_gemini_key: Annotated[str | None, Header()] = None) -> SecretStr | None:
     """The caller's own Gemini key, if they sent one. Wrapped at once so it is masked in every
-    repr — including arq's job log lines, which print job arguments."""
+    repr - including arq's job log lines, which print job arguments."""
     key = (x_gemini_key or "").strip()
     if not key:
         return None

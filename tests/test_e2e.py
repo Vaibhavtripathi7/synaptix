@@ -1,8 +1,8 @@
 """End to end, through the real google-genai SDK against a fake Gemini API (tests/fake_gemini.py).
 
-Upload → worker ingestion → questions → study guides, with the model client's failover, rate-limit
-handling and token accounting all running for real. No network, no quota: the conftest guard
-would fail any test that tried to reach Google."""
+Upload -> worker ingestion -> questions -> study guides, with the model client's failover,
+rate-limit handling and token accounting all running for real. No network, no quota: the
+conftest guard would fail any test that tried to reach Google."""
 
 import hashlib
 import json
@@ -233,7 +233,7 @@ async def test_a_study_guide_end_to_end(api, fake_gemini, small_pdf):
 
 async def test_a_document_becoming_ready_invalidates_cached_answers(api, redis, small_pdf):
     """The worker's side of invalidation, end to end: once a new document is ready, a question
-    over the whole library must be answered afresh — the library it was answered from changed."""
+    over the whole library must be answered afresh - the library it was answered from changed."""
     app.state.answer_cache = AnswerCache(redis, ttl_s=3600)
     await _ingest(api, small_pdf)
     question = {"question": "What drove revenue growth?"}

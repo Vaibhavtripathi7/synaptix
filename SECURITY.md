@@ -21,7 +21,7 @@ Untrusted inputs are HTTP requests (headers, bodies, uploads), the contents of e
 
 ### Workspace isolation
 
-- **Token.** A workspace is identified by a client-generated token (32–256 URL-safe
+- **Token.** A workspace is identified by a client-generated token (32-256 URL-safe
   characters). The server stores and compares only its SHA-256, so a database dump holds no
   usable tokens. Tokens with the wrong shape get 401 before any query runs
   (`app/api/deps.py`, `app/core/validation.py`).
@@ -61,7 +61,7 @@ Untrusted inputs are HTTP requests (headers, bodies, uploads), the contents of e
   the disk fills. Quotas are checked before the file is stored.
 - **Cleanup.** Failed uploads, including their source files, are purged by a cron job after 24
   h, so rejected files cannot accumulate.
-- **Request bounds.** Every request body field is bounded, for example questions at 3–2000
+- **Request bounds.** Every request body field is bounded, for example questions at 3-2000
   characters and document id lists at 50, so no request can make an unbounded SQL `IN` list or
   prompt. Output tokens are capped per model call (`llm_max_output_tokens`).
 
@@ -81,7 +81,7 @@ Untrusted inputs are HTTP requests (headers, bodies, uploads), the contents of e
 
 ### Prompt injection
 
-A PDF, or a table or figure inside one, can contain text such as "ignore your instructions and…".
+A PDF, or a table or figure inside one, can contain text such as "ignore your instructions and...".
 Defences come in layers, because no single one is reliable:
 
 1. **Spotlighting** (`app/llm/untrusted.py`). Every untrusted span is fenced with markers that
