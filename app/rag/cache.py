@@ -118,14 +118,33 @@ class AnswerCache:
         ANSWER_CACHE.labels("hit" if raw else "miss").inc()
         return json.loads(raw) if raw else None
 
-    def follow(self, key: str) -> asyncio.Future | None:
-        """The in-flight computation of `key` on this replica, if another request leads it;
-        otherwise registers the caller as leader and returns None."""
+    async def follow(self, key: str) -> asyncio.Future | None:
+        """The computation of `key` to wait on, if another request on this replica leads it;
+        otherwise registers the caller as leader and returns None.
+
+        Registering first and then reading closes the gap between the caller's lookup and this
+        call. A leader that finished in between has stood down, but it stores before standing
+        down, so its answer is in Redis: the caller gets it as an already settled computation."""
         if (leader := self._leaders.get(key)) is not None:
             ANSWER_CACHE.labels("coalesced").inc()
             return leader
-        self._leaders[key] = asyncio.get_running_loop().create_future()
-        return None
+        self._leaders[key] = leader = asyncio.get_running_loop().create_future()
+        if not self._ttl:
+            return None
+        try:
+            raw = await self._redis.get(key)
+        except (RedisError, OSError) as exc:
+            ANSWER_CACHE.labels("error").inc()
+            log.warning("cache.unavailable", error=str(exc))
+            return None
+        except BaseException:
+            self.abandon(key)  # cancelled while leading: the caller never gets to stand down
+            raise
+        if raw is None:
+            return None
+        ANSWER_CACHE.labels("coalesced").inc()
+        self._settle(key, json.loads(raw))
+        return leader
 
     async def put(self, key: str, value: dict) -> None:
         """Stores the leader's answer and hands it to everyone who waited on it."""
@@ -134,16 +153,19 @@ class AnswerCache:
                 await self._redis.set(key, json.dumps(value), ex=self._ttl)
             except (RedisError, OSError) as exc:
                 log.warning("cache.unavailable", error=str(exc))
-        if (leader := self._leaders.pop(key, None)) and not leader.done():
-            leader.set_result(value)
+        self._settle(key, value)
 
     async def invalidate(self, workspace: str) -> None:
         await invalidate_library(self._redis, workspace)
 
     def abandon(self, key: str) -> None:
         """The leader failed: waiters stop waiting and compute for themselves."""
+        self._settle(key, None)
+
+    def _settle(self, key: str, value: dict | None) -> None:
+        """Ends the leadership of `key`, handing `value` to everyone waiting on it."""
         if (leader := self._leaders.pop(key, None)) and not leader.done():
-            leader.set_result(None)
+            leader.set_result(value)
 
 
 async def invalidate_library(redis, workspace: str) -> None:

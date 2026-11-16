@@ -170,6 +170,56 @@ async def test_a_burst_of_identical_questions_costs_one_model_call(api):
     assert len({r.json()["answer"] for r in responses}) == 1
 
 
+async def test_an_answer_stored_while_a_request_was_on_its_way_is_not_recomputed(api, monkeypatch):
+    """The gap coalescing alone leaves: a request misses the cache, and before it reaches the
+    point where it would wait, the leader stores the answer and stands down. Finding no leader,
+    it must still find the answer rather than call the model. Staged on the database read that
+    sits between the two."""
+    from app.api import query as query_module
+
+    searchable, put = query_module._searchable, app.state.answer_cache.put
+    missed, stored = asyncio.Event(), asyncio.Event()
+    arrivals = 0
+
+    async def staged_searchable(*args):
+        nonlocal arrivals
+        arrivals += 1
+        if arrivals == 1:
+            await missed.wait()  # the leader goes on only once the other request has missed
+        else:
+            missed.set()
+            await stored.wait()  # and that one only once the leader has stored and stood down
+        return await searchable(*args)
+
+    async def put_then_signal(key, value):
+        await put(key, value)
+        stored.set()
+
+    monkeypatch.setattr(query_module, "_searchable", staged_searchable)
+    monkeypatch.setattr(app.state.answer_cache, "put", put_then_signal)
+    q = "What is the Q factor?"
+    responses = await asyncio.wait_for(asyncio.gather(api.ask(q), api.ask(q)), timeout=5)
+    assert api.model.retrievals == 1, "a request recomputed an answer stored moments before"
+    assert sorted(r.json()["cached"] for r in responses) == [False, True]
+
+
+async def test_a_leader_cancelled_while_it_registers_releases_its_followers():
+    """Registering as leader is followed by a read. A request cancelled during that read never
+    reaches the code that stands a leader down, so `follow` must, or everyone who joined it waits
+    out the timeout on nobody."""
+
+    class StalledRedis:
+        async def get(self, key):
+            await asyncio.Event().wait()
+
+    cache = AnswerCache(StalledRedis(), ttl_s=60)
+    leader = asyncio.create_task(cache.follow("k"))
+    await asyncio.sleep(0)  # the leader is registered and now reading
+    joined = await cache.follow("k")
+    leader.cancel()
+    assert await asyncio.wait_for(joined, timeout=1) is None, "the follower was left waiting"
+
+
 async def test_a_failed_answer_is_not_cached_and_waiters_are_released(api):
     api.model.delay, api.model.fail = 0.2, True
     burst = asyncio.gather(*(api.ask("What fails?") for _ in range(3)), return_exceptions=True)

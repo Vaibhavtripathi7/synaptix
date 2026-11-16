@@ -141,8 +141,8 @@ async def query(
     key = key_for(version)
 
     cached = None
-    if (leader := cache.follow(key)) is not None:
-        try:  # another request here is computing this exact answer: wait for it
+    if (leader := await cache.follow(key)) is not None:
+        try:  # another request here is computing, or just computed, this answer: wait for it
             cached = await asyncio.wait_for(asyncio.shield(leader), timeout=120)
         except TimeoutError:
             cached = None  # the leader is stuck; compute independently
